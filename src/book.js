@@ -150,8 +150,9 @@ export async function book(site, env, raw, now = new Date()) {
   for (let i = 0; i < 5 && !inserted; i++) {
     bk.id = bookingNo(now);
     const cols = Object.keys(bk);
-    const roomCond = stays.map(() => "(SELECT COUNT(*) FROM bookings WHERE status = 'booked' AND checkin <= ? AND checkout > ?) < ?").join(" AND ");
-    const roomArgs = stays.flatMap((k) => [k, k, limitOf(site, rules, k)]);
+    // 泊ごとの [日, その日の上限] を1つの値（JSON）で渡す。1泊ごとに ? を3つ使うと、23泊以上で D1 の上限（1文に100個）を超えて予約できなかった（2026-10-13 入力チェックの試験で見つけた）
+    const roomCond = "NOT EXISTS (SELECT 1 FROM json_each(?) AS s WHERE (SELECT COUNT(*) FROM bookings WHERE status = 'booked' AND checkin <= json_extract(s.value, '$[0]') AND checkout > json_extract(s.value, '$[0]')) >= json_extract(s.value, '$[1]'))";
+    const roomArgs = [JSON.stringify(stays.map((k) => [k, limitOf(site, rules, k)]))];
     const countCond = "COALESCE((SELECT n FROM daily_counts WHERE day = ? AND mark = '*'), 0) < ? AND COALESCE((SELECT n FROM daily_counts WHERE day = ? AND mark = ?), 0) < ? AND COALESCE((SELECT n FROM daily_counts WHERE day = ? AND mark = ?), 0) < ?";
     const countArgs = [day, site.dailyLimit, day, marks[0], site.perContactDailyLimit, day, marks[1], site.perContactDailyLimit];
     const insert = env.DB.prepare(
