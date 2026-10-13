@@ -87,12 +87,13 @@ body{line-height:1.6}
 const ADMIN = `
 body{background:var(--bg)}
 .adm-nav{position:sticky;top:0;z-index:1030;background:#fff;border-bottom:1px solid var(--line);--bs-navbar-padding-y:.4rem;--bs-navbar-color:var(--ink);--bs-navbar-hover-color:var(--p-text);--bs-navbar-active-color:var(--p-text);--bs-navbar-brand-color:var(--ink);--bs-navbar-brand-hover-color:var(--ink);--bs-navbar-toggler-border-color:rgba(0,0,0,.3);--bs-navbar-toggler-icon-bg:${svg("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'><path stroke='#2F2F2F' stroke-linecap='round' stroke-miterlimit='10' stroke-width='2' d='M4 7h22M4 15h22M4 23h22'/></svg>")}}
-.adm-nav-in{max-width:720px}
-.adm-nav .navbar-brand{font-size:.95rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:calc(100% - 64px);margin-right:.5rem}
+.adm-nav-in{max-width:960px}
+.adm-nav .navbar-brand{font-size:1rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:calc(100% - 64px);margin-right:1.5rem}
 .adm-nav .navbar-toggler{border-color:rgba(0,0,0,.3);padding:.25rem .5rem}
-.adm-nav .nav-link{border-radius:.375rem}
+.adm-nav .nav-link{border-radius:.375rem;padding:.6rem .85rem;font-size:.95rem}
+.adm-nav .nav-link .bi{margin-right:.35rem}
 .adm-nav .nav-link.active{box-shadow:inset 3px 0 0 var(--p-solid)}
-@media (min-width:768px){.adm-nav .nav-link.active{box-shadow:inset 0 -3px 0 var(--p-solid);border-radius:.375rem .375rem 0 0}}
+@media (min-width:768px){.adm-nav{--bs-navbar-padding-y:0}.adm-nav .navbar-nav{gap:.5rem}.adm-nav .nav-link{padding:1rem 1rem}.adm-nav .nav-link.active{box-shadow:inset 0 -3px 0 var(--p-solid);border-radius:0}}
 .adm-main{max-width:720px;margin:0 auto;padding:12px 12px 80px}
 .adm-main h1{font-size:1.2rem;margin:8px 0 12px}
 .adm-main h2{font-size:.9375rem;margin:20px 0 8px;color:var(--ink);font-weight:700}
