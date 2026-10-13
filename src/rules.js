@@ -1,5 +1,6 @@
 // 料金・受付の範囲・空きの数え方。決まりはリリース1（gas/Code.gs）のまま
 import { addDays, daysIn, parseYmd, todayJst, ymd } from "./dates.js";
+import { validOrThrow } from "./fields.js";
 
 /** 料金表の版 version で、人数・泊数の料金を出す（リリース1の price_） */
 export function price(site, guests, nights, version = site.price.current) {
@@ -14,22 +15,6 @@ export function price(site, guests, nights, version = site.price.current) {
 }
 
 export const beforeStart = (site, d) => !!site.bookingStart && d < parseYmd(site.bookingStart);
-
-/** 予約画面で選べる日か（リリース1の checkRange_） */
-export function checkRange(site, checkin, nights, now) {
-  const t = todayJst(now);
-  if (!site.sameDay && checkin <= t) throw new Error("当日以前の日は選べません");
-  if (checkin < t) throw new Error("過去の日は選べません");
-  if (beforeStart(site, checkin)) throw new Error("ネット予約の受付は " + site.bookingStart + " のチェックインからです");
-  if (checkin > addDays(t, site.bookingDaysAhead)) throw new Error("受付期間の外です");
-  if (!(nights >= 1 && nights <= site.maxNights)) throw new Error("泊数が正しくありません");
-}
-
-/** 人数（リリース1の checkGuests_） */
-export function checkGuests(site, guests) {
-  if (!(guests >= 1)) throw new Error("人数が正しくありません");
-  if (guests > site.maxGuests) throw new Error(site.maxGuests + 1 + "名以上のご予約は、公式LINEでご相談ください（" + site.contactLine + "）");
-}
 
 /** 受付条件を読む：{ day: { 'YYYY-MM-DD': {stop, limit_count} }, weekly: { 2: 1, ... } } */
 export async function loadRules(db, from, to) {
@@ -77,8 +62,8 @@ export async function occupancy(db, from, to) {
 
 /** 予約画面の月の表（リリース1の buildMonths_ と同じ形：{ok, month, days: {日: {rooms, closed}}}） */
 export async function monthCalendar(site, db, month, now) {
-  const m = /^(\d{4})-(\d{2})$/.exec(String(month ?? ""));
-  if (!m) throw new Error("月の形が正しくありません");
+  // 月の形（01〜12月）は src/fields.js
+  const m = /^(\d{4})-(\d{2})$/.exec(validOrThrow("month", { month }, site).month);
   const from = new Date(Date.UTC(+m[1], +m[2] - 1, 1));
   const to = new Date(Date.UTC(+m[1], +m[2], 1));
   const [occ, rules] = await Promise.all([occupancy(db, from, to), loadRules(db, from, to)]);
@@ -93,10 +78,10 @@ export async function monthCalendar(site, db, month, now) {
 }
 
 /** 空きの確かめと料金（リリース1の quote_） */
-export async function quote(site, db, checkinStr, nights, guests, now) {
-  const checkin = parseYmd(checkinStr);
-  checkRange(site, checkin, nights, now);
-  checkGuests(site, guests);
+export async function quote(site, db, checkinStr, nightsIn, guestsIn, now) {
+  // 受付の範囲・泊数・人数は src/fields.js（予約と同じ決まり）
+  const v = validOrThrow("quote", { checkin: checkinStr, nights: nightsIn, guests: guestsIn }, site, { now });
+  const checkin = parseYmd(v.checkin), nights = v.nights, guests = v.guests;
   const checkout = addDays(checkin, nights);
   const [occ, rules] = await Promise.all([occupancy(db, checkin, checkout), loadRules(db, checkin, checkout)]);
   // リリース1と同じく、泊まる日のどれかが受付期間の外・満室・受付停止なら空きなし

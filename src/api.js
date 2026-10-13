@@ -23,7 +23,7 @@ export async function handleApi(site, request, env, now = new Date()) {
     if (request.method === "GET") {
       const p = Object.fromEntries(new URL(request.url).searchParams);
       if (p.action === "calendar") return out(await monthCalendar(site, env.DB, p.month, now));
-      if (p.action === "quote") return out(await quote(site, env.DB, p.checkin, Number(p.nights), Number(p.guests), now));
+      if (p.action === "quote") return out(await quote(site, env.DB, p.checkin, p.nights, p.guests, now));
       if (p.action === "ping") return out({ ok: true, at: now.toISOString() });
       return out({ ok: false, error: "unknown action" });
     }
@@ -38,7 +38,8 @@ export async function handleApi(site, request, env, now = new Date()) {
     }
     return new Response("Method not allowed", { status: 405, headers });
   } catch (err) {
-    return out({ ok: false, error: String(err?.message ?? err) });
+    // 入力のまちがい（src/fields.js）は、最初の文 error に加えて、項目ごとの文 errors も返す
+    return out({ ok: false, error: String(err?.message ?? err), ...(err?.errors ? { errors: err.errors } : {}) });
   }
 }
 

@@ -1,5 +1,6 @@
 // 管理画面の API（/admin/api/...）。ログインした利用者だけ。変更は変更履歴に、だれが（アカウントID）・いつ・何を、を残す
-import { normalizeTel, checkText, clean, stayFields, bookingNo } from "./book.js";
+import { stayFields, bookingNo } from "./book.js";
+import { FieldError, validOrThrow } from "./fields.js";
 import { addDays, daysIn, monthOf, parseYmd, todayJst, ymd } from "./dates.js";
 import { limitOf, loadRules, occupancy, price, stoppedOn } from "./rules.js";
 
@@ -20,14 +21,10 @@ function ruleHistory(db, user, { day = null, weekday = null }, before, after, at
     .bind(crypto.randomUUID(), day, weekday, js(before), js(after), at, user.id, at, user.google_sub, at, user.google_sub);
 }
 
-const monthRange = (m) => {
-  const x = /^(\d{4})-(\d{2})$/.exec(String(m ?? "")) || bad("月の形が正しくありません");
+// 入力の確かめは src/fields.js（入力チェック仕様 2026-10-13）。まちがいは FieldError（項目ごとの文 errors つき）
+const monthRange = (site, m) => {
+  const x = /^(\d{4})-(\d{2})$/.exec(validOrThrow("month", { month: m }, site).month);
   return [new Date(Date.UTC(+x[1], +x[2] - 1, 1)), new Date(Date.UTC(+x[1], +x[2], 1))];
-};
-const intIn = (v, lo, hi, label) => {
-  const n = Number(v);
-  if (!Number.isInteger(n) || n < lo || n > hi) bad(label + "が正しくありません");
-  return n;
 };
 
 /** 日付・泊数・人数を受けて、満室・受付停止の日を返す（変更・登録の画面で知らせるため） */
@@ -41,10 +38,9 @@ async function fullNights(site, db, checkin, checkout, exceptId) {
   });
 }
 
-function stay(site, body, version) {
-  const checkin = parseYmd(body.checkin);
-  const nights = intIn(body.nights, 1, site.maxNights, "泊数");
-  const guests = intIn(body.guests, 1, site.maxGuests, "人数");
+function stay(site, body, version, now) {
+  const v = validOrThrow("stay", body, site, { now });
+  const checkin = parseYmd(v.checkin), nights = v.nights, guests = v.guests;
   const checkout = addDays(checkin, nights);
   return { checkin, checkout, nights, guests, price: price(site, guests, nights, version) };
 }
@@ -75,6 +71,7 @@ export async function handleAdminApi(site, env, request, user, now = new Date())
     const r = await route();
     return json({ ok: true, ...r });
   } catch (err) {
+    if (err instanceof FieldError) return json({ ok: false, error: err.message, errors: err.errors }, 400);
     if (err instanceof Bad || /形が正しくありません|料金/.test(String(err?.message))) return json({ ok: false, error: err.message }, 400);
     throw err;
   }
@@ -85,12 +82,12 @@ export async function handleAdminApi(site, env, request, user, now = new Date())
       case "GET /me":
         return { me: { name: user.display_name, email: user.email }, inn: site.innName, maxGuests: site.maxGuests, maxNights: site.maxNights };
       case "POST /me": {
-        const name = clean(body.name).slice(0, 100) || bad("名前を入れてください");
+        const { name } = validOrThrow("me", body, site);
         await db.prepare("UPDATE admin_users SET display_name = ?, updated_at = ?, updated_by = ? WHERE id = ?").bind(name, at, who, user.id).run();
         return { me: { name, email: user.email } };
       }
       case "GET /month": {
-        const [from, to] = monthRange(q.m);
+        const [from, to] = monthRange(site, q.m);
         const [occ, rules] = await Promise.all([occupancy(db, from, to), loadRules(db, from, to)]);
         const days = {};
         for (const k of Object.keys(occ)) days[k] = { count: occ[k].count, guests: occ[k].guests, limit: limitOf(site, rules, k), stop: stoppedOn(rules, k) };
@@ -138,7 +135,7 @@ export async function handleAdminApi(site, env, request, user, now = new Date())
       case "POST /quote": {
         // 変更・登録の前に、料金と満室の日を見せる
         const b = body.id ? (await db.prepare("SELECT * FROM bookings WHERE id = ?").bind(String(body.id)).first()) || bad("予約が見つかりません") : null;
-        const s = stay(site, body, b ? b.price_version : site.price.current);
+        const s = stay(site, body, b ? b.price_version : site.price.current, now);
         return { price: s.price, checkout: ymd(s.checkout), full: await fullNights(site, db, s.checkin, s.checkout, b?.id) };
       }
       case "POST /cancel": {
@@ -154,7 +151,7 @@ export async function handleAdminApi(site, env, request, user, now = new Date())
         const b = (await db.prepare("SELECT * FROM bookings WHERE id = ?").bind(String(body.id)).first()) || bad("予約が見つかりません");
         if (b.status === "cancelled") bad("キャンセルした予約は変えられません");
         // 料金は予約したときの料金表で計算し直す。満室・受付停止の日への変更も受ける（宿の判断。要件 5節）
-        const s = stay(site, body, b.price_version);
+        const s = stay(site, body, b.price_version, now);
         const after = { ...b, checkin: ymd(s.checkin), checkout: ymd(s.checkout), nights: s.nights, guests: s.guests, per_person: s.price.perPerson, total: s.price.total, discount: s.price.discount, pay: s.price.pay };
         if (JSON.stringify(stayFields(after)) === JSON.stringify(stayFields(b))) bad("変わったところがありません");
         await db.batch([
@@ -169,15 +166,8 @@ export async function handleAdminApi(site, env, request, user, now = new Date())
         // 変更履歴には、直した項目の前と後の値を残す。3年で個人情報を消すとき、この値も消す（cron.js）
         const b = (await db.prepare("SELECT * FROM bookings WHERE id = ?").bind(String(body.id)).first()) || bad("予約が見つかりません");
         if (b.pii_deleted_at) bad("この予約の個人情報は消去済みです");
-        const next = {
-          name: clean(body.name), tel: clean(body.tel), email: clean(body.email), address: clean(body.address), arrival: clean(body.arrival), note: clean(body.note, true),
-        };
-        if (!next.name) bad("お名前を入れてください");
-        if (next.tel) next.tel = normalizeTel(next.tel) || bad("電話番号の形が正しくありません（例：03-1234-5678、090-1234-5678）");
-        if (next.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(next.email)) bad("メールアドレスの形が正しくありません");
-        if (b.source === "web") for (const k of ["tel", "email", "address"]) if (!next[k]) bad("予約画面からの予約では、電話・メール・ご住所は消せません");
-        if (next.arrival && !/^\d{1,2}:\d{2}〜\d{1,2}:\d{2}$/.test(next.arrival)) bad("到着予定の形が正しくありません（例：15:00〜16:00）");
-        try { checkText(site, next); } catch (err) { bad(err.message); }
+        // 電話・メール・ご住所は、予約画面からの予約（source=web）だけ必須
+        const next = validOrThrow("info", body, site, { source: b.source });
         const changed = Object.keys(next).filter((k) => (b[k] ?? "") !== next[k]);
         if (!changed.length) bad("変わったところがありません");
         await db.batch([
@@ -189,7 +179,7 @@ export async function handleAdminApi(site, env, request, user, now = new Date())
       }
       case "POST /memo": {
         const b = (await db.prepare("SELECT id FROM bookings WHERE id = ?").bind(String(body.id)).first()) || bad("予約が見つかりません");
-        const memo = clean(body.memo, true).slice(0, 1000);
+        const { memo } = validOrThrow("memo", body, site);
         // メモの中身は変更履歴に入れない（変えたことだけ）
         await db.batch([
           db.prepare("UPDATE bookings SET inn_memo = ?, updated_at = ?, updated_by = ? WHERE id = ?").bind(memo, at, who, b.id),
@@ -199,16 +189,15 @@ export async function handleAdminApi(site, env, request, user, now = new Date())
       }
       case "POST /manual": {
         // 電話・LINE の予約。日付・泊数・人数・氏名（電話・メモは任意）。メールは送らない。不正利用対策の数には入れない
-        const s = stay(site, body, site.price.current);
-        const name = clean(body.name).slice(0, site.maxLen.name) || bad("お名前を入れてください");
-        let tel = "";
-        if (clean(body.tel)) tel = normalizeTel(clean(body.tel)) || bad("電話番号の形が正しくありません");
+        const v = validOrThrow("manual", body, site, { now });
+        const s = stay(site, v, site.price.current, now);
+        const { name, tel, memo } = v;
         const full = await fullNights(site, db, s.checkin, s.checkout);
         // 満室・受付停止の日への登録も、知らせを出したうえで受ける（画面で知らせる）
         const bk = {
           source: "manual", status: "booked", checkin: ymd(s.checkin), checkout: ymd(s.checkout), nights: s.nights, guests: s.guests,
           per_person: s.price.perPerson, total: s.price.total, discount: s.price.discount, pay: s.price.pay, price_version: site.price.current,
-          name, tel, email: "", address: "", arrival: "", note: "", inn_memo: clean(body.memo, true).slice(0, 1000), mail_guest: "none", mail_inn: "none", received_at: at,
+          name, tel, email: "", address: "", arrival: "", note: "", inn_memo: memo, mail_guest: "none", mail_inn: "none", received_at: at,
         };
         for (let i = 0; i < 5; i++) {
           bk.id = bookingNo(now);
@@ -242,16 +231,16 @@ export async function handleAdminApi(site, env, request, user, now = new Date())
       }
       case "POST /rules/day": {
         // 日・期間に「受付停止」「○件まで」「この日は受ける（定休日を外す）」「決まりを外す」
-        const from = parseYmd(body.from), to = addDays(parseYmd(body.to || body.from), 1);
-        if (to <= from) bad("期間が正しくありません");
+        // 期間（今日以降・始め ≦ 終わり・400日まで）・操作・件数は src/fields.js
+        const v = validOrThrow("rulesDay", body, site, { now });
+        const from = parseYmd(v.from), to = addDays(parseYmd(v.to), 1);
         const days = daysIn(from, to);
-        if (days.length > 400) bad("期間は400日までにしてください");
-        let next;
-        if (body.action === "stop") next = { stop: 1, limit_count: null };
-        else if (body.action === "limit") next = { stop: null, limit_count: intIn(body.limit, 0, 9999, "件数") };
-        else if (body.action === "open") next = { stop: 0, limit_count: body.limit === "" || body.limit == null ? null : intIn(body.limit, 0, 9999, "件数") };
-        else if (body.action === "clear") next = { stop: null, limit_count: null };
-        else bad("操作が正しくありません");
+        const next = {
+          stop: { stop: 1, limit_count: null },
+          limit: { stop: null, limit_count: v.limit },
+          open: { stop: 0, limit_count: v.limit },
+          clear: { stop: null, limit_count: null },
+        }[v.action];
         const { results } = await db.prepare("SELECT day, stop, limit_count FROM day_rules WHERE day >= ? AND day < ?").bind(ymd(from), ymd(to)).all();
         // 中身が空の行（決まりを外した日）は「決まりなし」と同じに扱う
         const empty = (r) => !r || (r.stop == null && r.limit_count == null);
@@ -272,8 +261,9 @@ export async function handleAdminApi(site, env, request, user, now = new Date())
         return { changed: stmts.length / 2 };
       }
       case "POST /rules/weekly": {
-        const wd = intIn(body.weekday, 0, 6, "曜日");
-        const stop = body.stop ? 1 : 0;
+        // 定休日は印あり（true）／なしだけ。文字の "false" などは「なし」
+        const v = validOrThrow("rulesWeekly", body, site);
+        const wd = v.weekday, stop = v.stop ? 1 : 0;
         const cur = await db.prepare("SELECT stop FROM weekly_rules WHERE weekday = ?").bind(wd).first();
         if ((cur?.stop ?? 0) === stop) return { changed: 0 };
         await db.batch([

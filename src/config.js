@@ -4,7 +4,7 @@
 const REQUIRED = [
   "innName", "adminUrl", "allowedOrigins", "admins",
   "maxGuests", "price", "bookingStart", "maxNights", "bookingDaysAhead", "sameDay", "maxOpen",
-  "dailyLimit", "perContactDailyLimit", "maxLen", "noUrlFields",
+  "dailyLimit", "perContactDailyLimit", "maxLen", "noUrlFields", "arrivalOptions",
   "checkIn", "checkOut", "cancelPolicy", "payNote", "contactLine", "contactTel", "safetyNote",
   "mail", "piiRetentionYears", "accessLogDays",
 ];

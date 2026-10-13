@@ -1,37 +1,9 @@
-// 予約画面からの予約（リリース1の book_）。入力の確かめ・不正利用対策・文面はリリース1のまま。
+// 予約画面からの予約（リリース1の book_）。入力の確かめは src/fields.js（入力チェック仕様 2026-10-13）。不正利用対策・文面はリリース1のまま。
 // 空きの確かめ・1日の受付件数の確かめ・登録を1つの batch（D1 では1つのトランザクション）で行い、同時の予約でも上限を超えない
 import { addDays, daysIn, jpDate, jstStamp, parseYmd, todayJst, ymd } from "./dates.js";
 import { sendMail } from "./mail.js";
-import { checkGuests, checkRange, limitOf, loadRules, price } from "./rules.js";
-
-/** 入力の文字を掃除する（リリース1の clean_） */
-export function clean(v, keepNewline) {
-  let t = String(v ?? "").replace(/\r\n?/g, "\n").replace(/[\u2028\u2029]/g, "\n");
-  if (!keepNewline) t = t.replace(/\n/g, " ");
-  return t.replace(/\t/g, " ").replace(/[\u0000-\u0008\u000B-\u001F\u007F]/g, "").trim();
-}
-const BAR_RE = /[|｜¦│┃∣ǀ￨❘]/;
-const URL_RE = /:\/\/|www\.|https?:/i;
-const FIELD_LABEL = { name: "お名前", address: "ご住所", note: "ご要望" };
-
-/** お名前・住所・要望の文字数・URL・縦線（リリース1の checkText_） */
-export function checkText(site, b) {
-  for (const k of Object.keys(site.maxLen)) {
-    const v = b[k] || "", label = FIELD_LABEL[k] || k, nk = v.normalize("NFKC");
-    if (Array.from(v).length > site.maxLen[k]) throw new Error(label + "は" + site.maxLen[k] + "字までで入力してください");
-    if (site.noUrlFields.includes(k) && URL_RE.test(nk)) throw new Error(label + "にURLは入れられません");
-    if (BAR_RE.test(v) || BAR_RE.test(nk)) throw new Error(label + "に「｜」などの縦線は使えません");
-  }
-}
-
-/** 電話番号の形（リリース1の normalizeTel_） */
-export function normalizeTel(s) {
-  const t = String(s || "").replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0)).replace(/[－‐―ー−]/g, "-").replace(/\s/g, "");
-  if (!/^\d+(-\d+)*$/.test(t)) return null;
-  const d = t.replace(/-/g, "");
-  if (/^0(?![5789]0)\d{9}$/.test(d) || /^0[5789]0\d{8}$/.test(d)) return t;
-  return null;
-}
+import { validOrThrow } from "./fields.js";
+import { limitOf, loadRules, price } from "./rules.js";
 
 /** 連絡先の印（SHA-256 の先頭8バイトを16進。リリース1の contactMark_ と同じ値） */
 export async function contactMark(kind, v) {
@@ -109,26 +81,12 @@ export function guestText(site, bk) {
 const AUDIT = "created_at, created_by, updated_at, updated_by";
 
 export async function book(site, env, raw, now = new Date()) {
-  const b = { ...raw };
-  for (const k of ["name", "tel", "email", "address", "arrival"]) if (b[k] != null) b[k] = clean(b[k]);
-  if (b.note != null) b.note = clean(b.note, true);
-  for (const k of ["checkin", "nights", "guests", "name", "tel", "email", "address"]) {
-    if (!b[k] && b[k] !== 0) throw new Error("入力されていない項目があります：" + k);
-  }
-  if (!b.agree) throw new Error("キャンセル料への同意が必要です");
-  // プライバシーポリシーへの同意（要件定義書 第2版 5節・6節の11）。版は施設の設定（site.privacyVersion）。版が決まるまでは予約を受けない
+  // プライバシーポリシーの版は施設の設定（site.privacyVersion。要件定義書 第2版 5節・6節の11）。版が決まるまでは予約を受けない
   if (!site.privacyVersion) throw new Error("プライバシーポリシーの版が設定されていません");
-  if (b.privacyAgree !== true) throw new Error("プライバシーポリシーへの同意が必要です");
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(b.email)) throw new Error("メールアドレスの形が正しくありません");
-  const tel = normalizeTel(b.tel);
-  if (!tel) throw new Error("電話番号の形が正しくありません（例：03-1234-5678、090-1234-5678）");
-  checkText(site, b);
-  if (b.arrival && !/^\d{1,2}:\d{2}〜\d{1,2}:\d{2}$/.test(b.arrival)) throw new Error("到着予定の形が正しくありません");
-
-  const nights = Number(b.nights), guests = Number(b.guests);
+  // 入力の確かめ（まちがいは全部まとめて FieldError で返す）
+  const b = validOrThrow("book", raw, site, { now });
+  const { nights, guests, tel } = b;
   const checkin = parseYmd(b.checkin);
-  checkRange(site, checkin, nights, now);
-  checkGuests(site, guests);
   const checkout = addDays(checkin, nights);
   const p = price(site, guests, nights);
   const stays = daysIn(checkin, checkout);

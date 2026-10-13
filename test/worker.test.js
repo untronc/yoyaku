@@ -5,7 +5,8 @@ import { dailyCleanup } from "../src/cron.js";
 import { createWorker } from "../src/worker.js";
 import { NOW, bookBody, login, okMail, reset, site, siteWith } from "./helpers.js";
 
-const worker = createWorker(site);
+// 「今」は NOW に決める（過去の日を断る決まりがあるので、試験の日付が先の日のままになるように）
+const worker = createWorker(site, { now: () => NOW });
 const STUDIO = "https://embed.example.jp";
 const call = (path, init = {}, w = worker) => w.fetch(new Request("https://yoyaku.example.jp" + path, init), env, {});
 const adminPost = (cookie, path, body, extra = {}) =>
@@ -20,7 +21,7 @@ afterEach(() => vi.restoreAllMocks());
 
 /** 予約画面から1件入れて予約番号を返す（日付は今日より後になるよう、本物の今日から数える） */
 async function webBooking(over = {}) {
-  const d = new Date(Date.now() + 9 * 3600000 + 20 * 86400000).toISOString().slice(0, 10);
+  const d = new Date(NOW.getTime() + 9 * 3600000 + 20 * 86400000).toISOString().slice(0, 10);
   const res = await call("/api", { method: "POST", headers: { Origin: STUDIO, "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(bookBody({ checkin: d, ...over })) });
   return (await res.json()).no;
 }
@@ -41,7 +42,7 @@ describe("予約画面の API", () => {
   });
   it("[R6-1] 誤りはリリース1と同じく {ok:false, error} で返す", async () => {
     const j = await (await call("/api?action=calendar&month=x", { headers: { Origin: STUDIO } })).json();
-    expect(j).toEqual({ ok: false, error: "月の形が正しくありません" });
+    expect(j).toEqual({ ok: false, error: "月の形が正しくありません", errors: { month: "月の形が正しくありません" } });
   });
   it("[R7-5] 操作ログを残す（個人情報なし）", async () => {
     const res = await call("/api", { method: "POST", headers: { Origin: STUDIO }, body: JSON.stringify({ action: "log", items: [{ at: "x", sid: "v1", ev: "open", ok: true, ms: 120, info: "", w: 375 }] }) });
@@ -125,7 +126,7 @@ describe("管理画面の操作", () => {
   it("[R5-10・R6-6] 料金は予約したときの料金表で計算し直す", async () => {
     const c = await login();
     const no = await webBooking();
-    const w2 = createWorker(siteWith({ price: { current: "r2", tables: { ...site.price.tables, r2: { tiers: [{ min: 1, max: 999, price: 9999 }], longStay: [] } } } }));
+    const w2 = createWorker(siteWith({ price: { current: "r2", tables: { ...site.price.tables, r2: { tiers: [{ min: 1, max: 999, price: 9999 }], longStay: [] } } } }), { now: () => NOW });
     await call("/admin/api/change", { method: "POST", headers: { Cookie: c, "X-Ybk": "1", "Content-Type": "application/json" }, body: JSON.stringify({ id: no, checkin: "2027-01-05", nights: 1, guests: 2 }) }, w2);
     expect((await env.DB.prepare("SELECT per_person FROM bookings WHERE id = ?").bind(no).first()).per_person).toBe(5000);
   });
@@ -171,7 +172,7 @@ describe("管理画面の操作", () => {
     const j = await (await adminGet(c, "/booking?id=" + no)).json();
     expect(j.history[1]).toMatchObject({ kind: "info", before: { name: "山田 花子", tel: "090-1234-5678" }, after: { name: "山田 華子", tel: "090-1234-5679" }, by: "運用者" });
     expect((await (await adminPost(c, "/info", { ...base, name: "山田 華子", tel: "090-1234-5679", email: "x" })).json()).error).toBe("メールアドレスの形が正しくありません");
-    expect((await (await adminPost(c, "/info", { ...base, name: "山田 華子", tel: "090-1234-5679", address: "" })).json()).error).toBe("予約画面からの予約では、電話・メール・ご住所は消せません");
+    expect((await (await adminPost(c, "/info", { ...base, name: "山田 華子", tel: "090-1234-5679", address: "" })).json()).error).toBe("ご住所を入れてください");
     expect((await (await adminPost(c, "/info", { ...base, name: "https://x.example", tel: "090-1234-5679" })).json()).error).toBe("お名前にURLは入れられません");
     expect((await (await adminPost(c, "/info", { ...base, name: "山田 華子", tel: "090-1234-5679" })).json()).error).toBe("変わったところがありません");
   });
@@ -330,7 +331,7 @@ describe("月ごとの数字（2026-10-13 よろづやの依頼）", () => {
   it("受付を始めた月から受付期間の最後の月まで、0件の月も0で並べる", async () => {
     const c = await login();
     const j = await (await adminGet(c, "/stats")).json();
-    const last = new Date(Date.now() + 9 * 3600000 + site.bookingDaysAhead * 86400000).toISOString().slice(0, 7);
+    const last = new Date(NOW.getTime() + 9 * 3600000 + site.bookingDaysAhead * 86400000).toISOString().slice(0, 7);
     expect(j.months[0].month).toBe(site.bookingStart.slice(0, 7));
     expect(j.months.at(-1).month).toBe(last);
     for (let i = 1; i < j.months.length; i++) {

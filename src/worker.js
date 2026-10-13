@@ -4,11 +4,13 @@
 //   /admin/b/<予約番号>   予約通知メールのリンク。管理画面のその予約を開く
 //   /admin/login・/admin/callback・/admin/logout
 //   /admin/api/...       管理画面の API（admin.js）
+//   /validate.js         画面の入力チェック（src/fields.js をこの施設の値つきで配る。予約画面と管理画面が読む）
 import { handleAdminApi } from "./admin.js";
 import { adminPage, messagePage } from "./admin-page.js";
 import { handleApi } from "./api.js";
 import { admit, clearStateCookie, currentUser, finishLogin, logoutCookie, startLogin } from "./auth.js";
 import { dailyCleanup } from "./cron.js";
+import { validateJs } from "./fields.js";
 
 const SECURITY = {
   "X-Frame-Options": "DENY",
@@ -18,7 +20,9 @@ const SECURITY = {
 };
 const html = (body, status = 200, extra = {}) => new Response(body, { status, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", ...SECURITY, ...extra } });
 
-export function createWorker(site) {
+/** opts.now：「今」を返す関数（単体テストで日付を決めるため。ふだんは使わない） */
+export function createWorker(site, opts = {}) {
+  const clock = opts.now || (() => new Date());
   return {
     async fetch(request, env) {
       const url = new URL(request.url);
@@ -46,7 +50,10 @@ export function createWorker(site) {
   async function route(request, env, url) {
     const p = url.pathname;
     {
-      if (p === "/api") return handleApi(site, request, env);
+      if (p === "/api") return handleApi(site, request, env, clock());
+      if (p === "/validate.js") {
+        return new Response(validateJs(site), { headers: { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "public, max-age=300", "X-Content-Type-Options": "nosniff" } });
+      }
       if (p === "/admin/login") return startLogin(site, env, url.searchParams.get("next"));
       if (p === "/admin/callback") {
         const who = await finishLogin(site, env, request);
@@ -63,7 +70,7 @@ export function createWorker(site) {
         const user = await currentUser(site, env, request);
         if (p.startsWith("/admin/api/")) {
           if (!user) return new Response(JSON.stringify({ ok: false, error: "login" }), { status: 401, headers: { "Content-Type": "application/json; charset=utf-8" } });
-          return handleAdminApi(site, env, request, user);
+          return handleAdminApi(site, env, request, user, clock());
         }
         if (!user) return new Response(null, { status: 302, headers: { Location: "/admin/login?next=" + encodeURIComponent(p) } });
         return html(adminPage(site));

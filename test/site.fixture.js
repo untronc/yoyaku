@@ -33,6 +33,8 @@ export default defineSite({
   perContactDailyLimit: 3,
   maxLen: { name: 50, address: 100, note: 300 },
   noUrlFields: ["name", "address", "note"],
+  // 到着予定の選択肢（予約画面の6つ。入力チェック仕様 2026-10-13：到着予定はこのどれか）
+  arrivalOptions: ["15:00〜16:00", "16:00〜17:00", "17:00〜18:00", "18:00〜19:00", "19:00〜20:00", "20:00〜21:00"],
   checkIn: "15:00〜21:00",
   checkOut: "10:00",
   cancelPolicy: "7日前から30％、前日80％、当日・無断100％",

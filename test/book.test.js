@@ -1,6 +1,7 @@
 import { env } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { book, contactMark, normalizeTel } from "../src/book.js";
+import { book, contactMark } from "../src/book.js";
+import { normalizeTel } from "../src/fields.js";
 import { NOW, bookBody, okMail, reset, site } from "./helpers.js";
 
 let mails;
@@ -95,8 +96,8 @@ describe("予約画面からの予約", () => {
     [{ tel: "12345" }, "電話番号の形が正しくありません"],
     [{ name: "https://spam.example" }, "お名前にURLは入れられません"],
     [{ name: "山田｜受付停止" }, "お名前に「｜」などの縦線は使えません"],
-    [{ arrival: "夜" }, "到着予定の形が正しくありません"],
-    [{ address: "" }, "入力されていない項目があります：address"],
+    [{ arrival: "夜" }, "到着予定を選んでください"],
+    [{ address: "" }, "ご住所を入れてください"],
     [{ privacyAgree: false }, "プライバシーポリシーへの同意が必要です"],
     [{ privacyAgree: "true" }, "プライバシーポリシーへの同意が必要です"],
   ])("[R5-18・R6-1・R6-11] 入力の確かめ %o", async (over, msg) => {
@@ -112,5 +113,6 @@ describe("予約画面からの予約", () => {
     expect(normalizeTel("０９０－１２３４－５６７８")).toBe("090-1234-5678");
     expect(normalizeTel("0312345678")).toBe("0312345678");
     expect(normalizeTel("0901234567")).toBeNull();
+    expect(normalizeTel("0012345678")).toBeNull(); // 00 から始まるものは断る（入力チェック仕様 2026-10-13）
   });
 });
