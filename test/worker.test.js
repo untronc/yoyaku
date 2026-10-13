@@ -297,3 +297,51 @@ describe("HTTPS だけ", () => {
     expect(ok.headers.get("Strict-Transport-Security")).toBe("max-age=31536000");
   });
 });
+
+describe("月ごとの数字（2026-10-13 よろづやの依頼）", () => {
+  const at = new Date().toISOString();
+  const put = (id, source, status, checkin, checkout, nights, guests, pay, name = "山田 花子") =>
+    env.DB.prepare("INSERT INTO bookings (id, source, status, checkin, checkout, nights, guests, per_person, total, discount, pay, price_version, name, mail_guest, mail_inn, received_at, created_at, created_by, updated_at, updated_by) VALUES (?,?,?,?,?,?,?,0,?,0,?,'r1',?,'none','none',?,?,'t',?,'t')")
+      .bind(id, source, status, checkin, checkout, nights, guests, pay, pay, name, at, at, at)
+      .run();
+
+  it("泊まる月（チェックインの月）ごとに、ネット予約・電話・LINE・合計の件数・人数・泊数・金額を出す。キャンセルは件数だけ・試しの予約は入れない", async () => {
+    await put("261001-0001", "web", "booked", "2026-10-30", "2026-11-02", 3, 2, 27000); // 月をまたぐ → 10月に全部
+    await put("261001-0002", "manual", "booked", "2026-10-20", "2026-10-21", 1, 1, 5500);
+    await put("261001-0003", "web", "cancelled", "2026-10-25", "2026-10-26", 1, 2, 10000);
+    await put("261001-0004", "web", "booked", "2026-10-21", "2026-10-22", 1, 1, 5500, "テスト アントロン");
+    await put("261001-0005", "manual", "booked", "2026-10-22", "2026-10-23", 1, 1, 5500, "試験 花子");
+    await put("261001-0006", "web", "booked", "2026-11-05", "2026-11-07", 2, 1, 11000, null); // 個人情報を消した予約も数える
+    const c = await login();
+    const j = await (await adminGet(c, "/stats")).json();
+    expect(j.ok).toBe(true);
+    const by = Object.fromEntries(j.months.map((m) => [m.month, m]));
+    expect(by["2026-10"]).toEqual({
+      month: "2026-10",
+      web: { count: 1, guests: 2, nights: 3, pay: 27000 },
+      manual: { count: 1, guests: 1, nights: 1, pay: 5500 },
+      total: { count: 2, guests: 3, nights: 4, pay: 32500 },
+      cancelled: 1,
+    });
+    expect(by["2026-11"].total).toEqual({ count: 1, guests: 1, nights: 2, pay: 11000 });
+    expect(by["2026-11"].cancelled).toBe(0);
+  });
+
+  it("受付を始めた月から受付期間の最後の月まで、0件の月も0で並べる", async () => {
+    const c = await login();
+    const j = await (await adminGet(c, "/stats")).json();
+    const last = new Date(Date.now() + 9 * 3600000 + site.bookingDaysAhead * 86400000).toISOString().slice(0, 7);
+    expect(j.months[0].month).toBe(site.bookingStart.slice(0, 7));
+    expect(j.months.at(-1).month).toBe(last);
+    for (let i = 1; i < j.months.length; i++) {
+      const [y, m] = j.months[i - 1].month.split("-").map(Number);
+      expect(j.months[i].month).toBe(m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, "0")}`);
+    }
+    const zero = { count: 0, guests: 0, nights: 0, pay: 0 };
+    expect(j.months[1]).toEqual({ month: j.months[1].month, web: zero, manual: zero, total: zero, cancelled: 0 });
+  });
+
+  it("ログインしていなければ見られない", async () => {
+    expect((await call("/admin/api/stats")).status).toBe(401);
+  });
+});

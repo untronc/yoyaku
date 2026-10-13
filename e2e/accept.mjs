@@ -85,7 +85,18 @@ function targetDates() {
   return { checkin: day(15), mid: day(16), last: day(17), month: f(first).slice(0, 7), monthsAhead: 1, nights: 3, guests: 2 };
 }
 const T = targetDates();
-const GUEST = { name: "試験 太郎", tel: "090-1234-5678", email: "e2e-guest@example.com", address: "群馬県利根郡片品村 試験1-2-3" };
+// 名前に「テスト」「試験」を入れない（月ごとの数字に数えられる予約として流すため）
+const GUEST = { name: "山田 太郎", tel: "090-1234-5678", email: "e2e-guest@example.com", address: "東京都千代田区1-2-3" };
+
+
+  // 月ごとの数字：チェックインの月の表を読む
+  const statsOf = async (page) => {
+    await page.goto(`${API}/admin/stats`);
+    await page.waitForSelector("table.st", { timeout: 10000 });
+    const tables = await page.locator("table.st").allInnerTexts();
+    const [y, m] = T.month.split("-");
+    return { mine: tables.find((t) => t.startsWith(`${y}年${+m}月`)) ?? "", all: tables };
+  };
 
 // ----- 予約画面の操作 -----
 async function openEmbed(page) {
@@ -229,6 +240,17 @@ async function main() {
       has(text, "テスト環境のため送っていない", "メール欄");
     });
 
+    await check("月ごとの数字", "10/13 よろづや", "チェックインの月の「ネット予約」に 1件・2名・3泊・27,000円、キャンセル 0件。0件の月は 0件と出る", async () => {
+      const { mine, all } = await statsOf(admin);
+      const line = (label) => mine.split(/\r?\n/).find((l) => l.startsWith(label)) ?? "";
+      must(mine, `${T.month} の表が無い`);
+      for (const v of ["1件", "2名", "3泊", "27,000円"]) has(line("ネット予約"), v, "ネット予約の行");
+      has(line("合計"), "1件", "合計の行"); has(line("キャンセル"), "0件", "キャンセルの行");
+      must(all.some((t) => !t.startsWith(mine.slice(0, 8)) && /合計\s+0件\s+0名\s+0泊\s+0円/.test(t)), "0件の月が 0 と出ていない");
+    });
+    await admin.goto(`${API}/admin/b/${bookingNo}`);
+    await admin.waitForSelector("#doCancel", { timeout: 10000 }).catch(() => {});
+
     // ---------- b. 取り消す ----------
     admin.once("dialog", (d) => d.accept());
     await admin.click("#doCancel").catch(() => {});
@@ -261,6 +283,11 @@ async function main() {
       await admin.goto(`${API}/admin?m=${T.month}`);
       await admin.waitForSelector(".cal a[data-go]");
       has(await admin.locator(`.cal a[href="/admin/d/${T.checkin}"]`).innerText(), "0/3件", "月の表");
+    });
+    await check("月ごとの数字", "10/13 よろづや", "キャンセルすると、件数・金額から外れ、キャンセルに 1件と出る", async () => {
+      const { mine } = await statsOf(admin);
+      const line = (label) => mine.split(/\r?\n/).find((l) => l.startsWith(label)) ?? "";
+      has(line("ネット予約"), "0件", "ネット予約の行"); has(line("合計"), "0円", "合計の行"); has(line("キャンセル"), "1件", "キャンセルの行");
     });
 
     // ---------- c. ログイン ----------

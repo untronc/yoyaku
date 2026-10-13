@@ -1,5 +1,5 @@
 // 管理画面の HTML（1枚。画面の切り替えはこの中の JS）。スマートフォンでの利用を優先し、色は宿のサイト（予約画面）にそろえる
-// 画面：月の表（/admin）・日の予約（/admin/d/日付）・予約の詳細（/admin/b/予約番号）・予約を足す（/admin/new）・受付の設定（/admin/rules）・名前（/admin/me）
+// 画面：月の表（/admin）・日の予約（/admin/d/日付）・予約の詳細（/admin/b/予約番号）・予約を足す（/admin/new）・受付の設定（/admin/rules）・月ごとの数字（/admin/stats）・名前（/admin/me）
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
 const CSS = `
@@ -47,6 +47,11 @@ textarea{min-height:90px}
 .list a{display:block;text-decoration:none;color:inherit}
 .hist{font-size:14px;border-left:3px solid var(--line);padding-left:8px;margin:6px 0}
 .muted{color:var(--mid);font-size:13px}
+.st{width:100%;border-collapse:collapse;font-size:13px;background:#fff}
+.st th,.st td{border-bottom:1px solid var(--line);padding:6px;text-align:right;white-space:nowrap}
+.st th:first-child,.st td:first-child{text-align:left}
+.st tr.sum td{font-weight:bold}
+.stwrap{overflow-x:auto;margin:0 0 14px}
 `;
 
 export function messagePage(site, message, withLogin) {
@@ -58,7 +63,7 @@ export function messagePage(site, message, withLogin) {
 export function adminPage(site) {
   return `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
 <title>${esc(site.innName)} 予約管理</title><style>${CSS}</style></head><body>
-<header><b>${esc(site.innName)} 予約管理</b><a href="/admin" data-go>月の表</a><a href="/admin/rules" data-go>受付の設定</a><a href="/admin/me" data-go id="me">…</a></header>
+<header><b>${esc(site.innName)} 予約管理</b><a href="/admin" data-go>月の表</a><a href="/admin/rules" data-go>受付の設定</a><a href="/admin/stats" data-go>月ごとの数字</a><a href="/admin/me" data-go id="me">…</a></header>
 <main id="main"><p class="muted">読み込み中…</p></main>
 <script>${SCRIPT}</script></body></html>`;
 }
@@ -98,8 +103,25 @@ const SCRIPT = String.raw`
     if ((m = /^\/admin\/d\/(\d{4}-\d{2}-\d{2})$/.exec(p))) return day(m[1]);
     if (p === '/admin/new') return addForm(new URLSearchParams(location.search).get('d'));
     if (p === '/admin/rules') return rules();
+    if (p === '/admin/stats') return stats();
     if (p === '/admin/me') return me();
     return month(new URLSearchParams(location.search).get('m') || today().slice(0, 7));
+  }
+
+  // ----- 月ごとの数字（チェックインの月ごと。キャンセルは件数だけ。試しの予約は入れない） -----
+  function stats() {
+    M.innerHTML = '<p class="muted">読み込み中…</p>';
+    api('/stats').then(function (j) {
+      var h = '<h1 style="font-size:17px">月ごとの数字</h1><p class="muted">泊まる月（チェックインの月）ごと。月をまたぐ予約はチェックインの月に入れる。金額は予約の合計（連泊割引のあと）。キャンセルは件数だけで、件数・金額には入れない。名前に「テスト」「試験」を含む予約は入れない。</p>';
+      j.months.forEach(function (x) {
+        var y = x.month.slice(0, 4), mm = +x.month.slice(5);
+        var line = function (label, v, cls) { return '<tr' + (cls ? ' class="' + cls + '"' : '') + '><td>' + label + '</td><td>' + v.count + '件</td><td>' + v.guests + '名</td><td>' + v.nights + '泊</td><td>' + yen(v.pay) + '</td></tr>'; };
+        h += '<div class="stwrap"><table class="st"><tr><th><a href="/admin?m=' + e(x.month) + '" data-go>' + y + '年' + mm + '月</a></th><th>件数</th><th>人数</th><th>泊数</th><th>金額</th></tr>' +
+          line('ネット予約', x.web) + line('電話・LINE', x.manual) + line('合計', x.total, 'sum') +
+          '<tr><td>キャンセル</td><td>' + x.cancelled + '件</td><td></td><td></td><td></td></tr></table></div>';
+      });
+      M.innerHTML = h;
+    }).catch(function (x) { M.innerHTML = err(x); });
   }
 
   // ----- 月の表 -----

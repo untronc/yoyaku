@@ -1,6 +1,6 @@
 {
   "name": "yoyaku",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "宿の素泊まり予約（予約画面の API と管理画面。Cloudflare Workers・D1）",
   "private": true,
   "license": "PolyForm-Noncommercial-1.0.0",

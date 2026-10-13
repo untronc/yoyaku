@@ -1,6 +1,6 @@
 // 管理画面の API（/admin/api/...）。ログインした利用者だけ。変更は変更履歴に、だれが（アカウントID）・いつ・何を、を残す
 import { normalizeTel, checkText, clean, stayFields, bookingNo } from "./book.js";
-import { addDays, daysIn, parseYmd, ymd } from "./dates.js";
+import { addDays, daysIn, monthOf, parseYmd, todayJst, ymd } from "./dates.js";
 import { limitOf, loadRules, occupancy, price, stoppedOn } from "./rules.js";
 
 const AUDIT = "created_at, created_by, updated_at, updated_by";
@@ -95,6 +95,30 @@ export async function handleAdminApi(site, env, request, user, now = new Date())
         const days = {};
         for (const k of Object.keys(occ)) days[k] = { count: occ[k].count, guests: occ[k].guests, limit: limitOf(site, rules, k), stop: stoppedOn(rules, k) };
         return { month: q.m, days };
+      }
+      case "GET /stats": {
+        // 月ごとの数字（2026-10-13 よろづやの依頼）。チェックインの月に、件数・人数・泊数・金額（保存してある pay）を全部入れる。
+        // キャンセルは件数だけ。名前に「テスト」「試験」を含む試しの予約は入れない。受付を始めた月から受付期間の最後の月まで、0件の月も並べる
+        const first = site.bookingStart.slice(0, 7), last = monthOf(addDays(todayJst(now), site.bookingDaysAhead));
+        const { results } = await db
+          .prepare("SELECT substr(checkin, 1, 7) AS m, source, status, COUNT(*) AS n, SUM(guests) AS g, SUM(nights) AS ni, SUM(pay) AS p FROM bookings WHERE COALESCE(name, '') NOT LIKE '%テスト%' AND COALESCE(name, '') NOT LIKE '%試験%' AND checkin >= ? AND checkin < ? GROUP BY 1, 2, 3")
+          .bind(first + "-01", ymd(addDays(parseYmd(last + "-01"), 31)).slice(0, 7) + "-01")
+          .all();
+        const zero = () => ({ count: 0, guests: 0, nights: 0, pay: 0 });
+        const months = [];
+        for (let d = parseYmd(first + "-01"); monthOf(d) <= last; d = parseYmd(monthOf(addDays(d, 31)) + "-01")) {
+          months.push({ month: monthOf(d), web: zero(), manual: zero(), total: zero(), cancelled: 0 });
+        }
+        const byMonth = Object.fromEntries(months.map((x) => [x.month, x]));
+        for (const r of results) {
+          const x = byMonth[r.m];
+          if (!x) continue;
+          if (r.status !== "booked") { x.cancelled += r.n; continue; }
+          for (const k of [r.source === "web" ? "web" : "manual", "total"]) {
+            x[k].count += r.n; x[k].guests += r.g; x[k].nights += r.ni; x[k].pay += r.p;
+          }
+        }
+        return { months };
       }
       case "GET /day": {
         const d = ymd(parseYmd(q.d));
