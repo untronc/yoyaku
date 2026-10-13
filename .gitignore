@@ -7,3 +7,4 @@ sites/*
 # 前の鍵の道具（dev/put-secret.mjs にまとめた）
 dev/put-google-secret.*
 dev/put-resend-secret.mjs
+public/vendor/

@@ -5,5 +5,7 @@
   "main": "index.js",
   "compatibility_date": "2026-08-22",
   "d1_databases": [{ "binding": "DB", "database_name": "yoyaku-e2e", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "../../migrations" }],
+  // Bootstrap・Bootstrap Icons（public/vendor/。npm install のたびに dev/copy-vendor.mjs が写す）
+  "assets": { "directory": "../../public" },
   "vars": { "MAIL_MODE": "log" }
 }

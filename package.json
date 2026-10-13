@@ -5,13 +5,18 @@
   "private": true,
   "license": "PolyForm-Noncommercial-1.0.0",
   "type": "module",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "check": "vitest run",
     "test": "vitest run",
+    "postinstall": "node dev/copy-vendor.mjs",
+    "vendor": "node dev/copy-vendor.mjs",
     "dev": "wrangler dev --port 8796",
     "accept": "node e2e/accept.mjs",
     "fields": "node e2e/fields.mjs",
+    "looks": "node e2e/looks.mjs",
     "db:local": "wrangler d1 migrations apply DB --local"
   },
   "devDependencies": {
@@ -19,5 +24,9 @@
     "playwright-core": "^1.64.0",
     "vitest": "^4.1.11",
     "wrangler": "^4.147.0"
+  },
+  "dependencies": {
+    "bootstrap": "5.3.3",
+    "bootstrap-icons": "1.11.3"
   }
 }
