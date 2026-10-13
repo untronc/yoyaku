@@ -8,7 +8,7 @@
 import { chromium } from "playwright-core";
 import { FORMS } from "../src/fields.js";
 import { baseInput, fieldCases } from "../test/field-cases.js";
-import { API, EMBED, sessionCookie, startLocal, stopAll } from "./local.mjs";
+import { API, EMBED, sessionCookie, setCount, startLocal, stopAll } from "./local.mjs";
 import site from "./site/site.config.js";
 
 const STATE = ".wrangler/e2e-fields-state"; // ROOT からの相対
@@ -94,7 +94,9 @@ async function embedScreens(browser) {
 
   // STEP 1：チェックイン（カレンダーで押す）・泊数・人数（選択肢）
   await open();
-  const options = { nights: await opt('[data-f="nights"]'), guests: await opt('[data-f="guests"]') };
+  // 泊数・人数は − ＋ で選ぶ（泊数 1〜上限、人数 1〜上限＋1 の「○名以上」）。この範囲の整数だけが画面で入れられる
+  const range = (lo, hi) => Array.from({ length: hi - lo + 1 }, (_, i) => String(lo + i));
+  const options = { nights: range(1, site.maxNights), guests: range(1, site.maxGuests + 1) };
   for (const c of fieldCases("quote", site, ctx("web"))) {
     if (c.key === "checkin" && c.value !== "") {
       await open();
@@ -107,8 +109,8 @@ async function embedScreens(browser) {
         await open();
         if (c.key !== "checkin") await pick(day);
         else if (c.value !== "") await pick(c.value);
-        await page.selectOption('[data-f="nights"]', String(c.key === "nights" ? input.nights : qBase.nights));
-        await page.selectOption('[data-f="guests"]', String(c.key === "guests" ? input.guests : qBase.guests));
+        if (!(await setCount(page, "nights", c.key === "nights" ? input.nights : qBase.nights))) throw new Error("泊数を合わせられない");
+        if (!(await setCount(page, "guests", c.key === "guests" ? input.guests : qBase.guests))) throw new Error("人数を合わせられない");
       },
       submit: () => page.click('[data-go="quote"]'),
       wait: 400,

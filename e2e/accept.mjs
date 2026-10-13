@@ -3,11 +3,13 @@
 // 手元だけで動く：手元の D1（.wrangler/e2e-state・毎回消してマイグレーションから作り直す）・手元の wrangler dev・手元の確認ページ（dev/serve-embed.mjs）。
 // テスト環境（リモート）・本番にはつながない。メールは送らない（MAIL_MODE=log）。ブラウザは PC の Edge（ダウンロードしない）。
 // 試験の中身は ClaudeCode_受け入れ試験シナリオ_リリース2 の K2（ログイン）・K5（キャンセル）・K11（同意の記録）・B1（予約が管理画面に出る）の手元版。業務の流れだけを見る。
+// 2026-10-13 基本設計書 追補（Bootstrap と見た目の設定）：設定（S-03 色を変える → 管理画面と予約画面の色・変更履歴・知らない値を断る）と、
+// 配り方（S-04 単独で開いた形・STUDIO の枠の形〈親ページに parent-height.html〉・前の埋め込みのままでも動く）を足した。
 // 入力の形（必須・長さ・形・禁止・同意の印なし など）は、入力チェックの試験（npm run fields ＝ e2e/fields.mjs）で見るので、ここからは外した（2026-10-13）。
 // 手元の道具（D1・wrangler dev・確認ページ）は e2e/local.mjs。
 // 結果は K番号・要件番号ごとに 通過／不合格 を1行ずつ出し、1つでも落ちたら終了コード 1
 import { chromium, request as pwRequest } from "playwright-core";
-import { API, EMBED, SECRET, sessionCookie, startLocal, stopAll } from "./local.mjs";
+import { API, EMBED, SECRET, sessionCookie, setCount, startLocal, stopAll } from "./local.mjs";
 
 const STATE = ".wrangler/e2e-state"; // ROOT からの相対
 const ADMIN_EMAIL = "operator@example.com"; // 施設の設定（site.admins）に入っている宛先
@@ -40,14 +42,14 @@ const T = targetDates();
 const GUEST = { name: "山田 太郎", tel: "090-1234-5678", email: "e2e-guest@example.com", address: "東京都千代田区1-2-3" };
 
 
-  // 月ごとの数字：チェックインの月の表を読む
-  const statsOf = async (page) => {
-    await page.goto(`${API}/admin/stats`);
-    await page.waitForSelector("table.st", { timeout: 10000 });
-    const tables = await page.locator("table.st").allInnerTexts();
-    const [y, m] = T.month.split("-");
-    return { mine: tables.find((t) => t.startsWith(`${y}年${+m}月`)) ?? "", all: tables };
-  };
+// 月ごとの数字：月ごとの札（data-month）の行（data-row：web・manual・total・cancelled）を読む
+const statsOf = async (page) => {
+  await page.goto(`${API}/admin/stats`);
+  await page.waitForSelector("[data-month] [data-row]", { timeout: 10000 });
+  const months = await page.locator("[data-month]").evaluateAll((cards) =>
+    cards.map((c) => ({ month: c.getAttribute("data-month"), rows: Object.fromEntries([...c.querySelectorAll("[data-row]")].map((r) => [r.getAttribute("data-row"), r.innerText.replace(/\s+/g, " ").trim()])) })));
+  return { mine: months.find((x) => x.month === T.month)?.rows, all: months };
+};
 
 // ----- 予約画面の操作 -----
 async function openEmbed(page) {
@@ -59,12 +61,13 @@ async function openEmbed(page) {
   }
   await page.waitForSelector(`.ybk-cal button[data-day="${T.checkin}"]`);
 }
-const mark = (page, day) => page.locator(`.ybk-cal button[data-day="${day}"] small`).innerText();
+// 日の印（○ 空きあり・△ 残りわずか・× 満室・− 受付期間外）。アプリ風の画面では点や「残り N」で出すので、印は data-mark で読む
+const mark = (page, day) => page.locator(`.ybk-cal button[data-day="${day}"]`).getAttribute("data-mark");
 const calRooms = async (day) => (await (await fetch(`${API}/api?action=calendar&month=${T.month}`)).json()).days[day].rooms;
 
 async function fillGuest(page) {
-  await page.selectOption('[data-f="nights"]', String(T.nights));
-  await page.selectOption('[data-f="guests"]', String(T.guests));
+  await setCount(page, "nights", T.nights);
+  await setCount(page, "guests", T.guests);
 }
 
 // =====================================================================
@@ -99,9 +102,9 @@ async function main() {
     await fillGuest(guest);
     await guest.click('[data-go="quote"]');
     await guest.waitForSelector('.ybk-step[data-step="2"]:not([hidden])');
-    await check("B1", "R5-1", "日付・泊数・人数を選ぶと料金が出る（2名×3泊・連泊割引つき 27,000円）", async () => {
-      const sum = await guest.locator('.ybk-step[data-step="2"] [data-sum]').innerText();
-      has(sum, "30,000円", "料金"); has(sum, "−3,000円", "連泊割引"); has(sum, "27,000円", "お支払い");
+    await check("B1", "R5-1", "日付・泊数・人数を選ぶと、下のボタンの上に合計が出る（2名×3泊・連泊割引つき 27,000円）", async () => {
+      has(await guest.locator('.ybk-step[data-step="2"] [data-sum]').innerText(), "3泊・2名", "日程");
+      has(await guest.locator('.ybk-step[data-step="2"] [data-total]').innerText(), "27,000円", "合計");
     });
     await guest.fill('[data-f="name"]', GUEST.name);
     await guest.fill('[data-f="tel"]', GUEST.tel);
@@ -109,6 +112,10 @@ async function main() {
     await guest.fill('[data-f="address"]', GUEST.address);
     await guest.click('[data-go="confirm"]');
     await guest.waitForSelector('.ybk-step[data-step="3"]:not([hidden])');
+    await check("B1", "R5-1", "確認の画面に料金の内訳が出る（30,000円・連泊割引 −3,000円・お支払い 27,000円）", async () => {
+      const p = await guest.locator('.ybk-step[data-step="3"] [data-price]').innerText();
+      has(p, "30,000円", "料金"); has(p, "−3,000円", "連泊割引"); has(p, "27,000円", "お支払い");
+    });
 
     // 同意の印を2つ付けて確定（印なしで断るのは e2e/fields.mjs）
     await guest.check('[data-f="agree"]');
@@ -142,23 +149,23 @@ async function main() {
     await ctx.addCookies([{ name: "ybk_s", value: await sessionCookie("sub-ok"), url: `${API}/admin`, httpOnly: true }]);
     await admin.goto(`${API}/admin?m=${T.month}`);
     await check("K2", "R6-2", "許可した人の Cookie で管理画面が開く（月の表が出る）", async () => {
-      await admin.waitForSelector(".cal a[data-go]", { timeout: 15000 });
-      has(await admin.locator("header").innerText(), "予約管理", "見出し");
+      await admin.waitForSelector(".heat-grid a[data-go]", { timeout: 15000 });
+      has(await admin.locator("nav.adm-nav").innerText(), "予約管理", "見出し");
       has(await admin.locator("#me").innerText(), "e2e-ok", "右上の名前");
     });
     await check("B1", "R5-1・R6-4", "管理画面の月の表の、その日に「1/3件・2名」と出る", async () => {
-      has(await admin.locator(`.cal a[href="/admin/d/${T.checkin}"]`).innerText(), "1/3件", "月の表");
-      has(await admin.locator(`.cal a[href="/admin/d/${T.checkin}"]`).innerText(), "2名", "月の表");
-      has(await admin.locator(`.cal a[href="/admin/d/${T.last}"]`).innerText(), "1/3件", "月の表（最後の泊）");
+      has(await admin.locator(`.heat-grid a[href="/admin/d/${T.checkin}"]`).innerText(), "1/3件", "月の表");
+      has(await admin.locator(`.heat-grid a[href="/admin/d/${T.checkin}"]`).innerText(), "2名", "月の表");
+      has(await admin.locator(`.heat-grid a[href="/admin/d/${T.last}"]`).innerText(), "1/3件", "月の表（最後の泊）");
     });
-    await admin.click(`.cal a[href="/admin/d/${T.checkin}"]`);
+    await admin.click(`.heat-grid a[href="/admin/d/${T.checkin}"]`);
     await check("B1", "R5-1", "日の予約に、その予約が出る", async () => {
       must(bookingNo, "予約番号が無い");
       await admin.waitForSelector(`a[href="/admin/b/${bookingNo}"]`, { timeout: 10000 });
       has(await admin.locator("main").innerText(), GUEST.name, "日の予約");
     });
     await admin.click(`a[href="/admin/b/${bookingNo}"]`).catch(() => {});
-    await admin.waitForSelector("dl", { timeout: 10000 }).catch(() => {});
+    await admin.waitForSelector("#history", { timeout: 10000 }).catch(() => {});
     await check("K11", "R5-18・R6-11", "予約の詳細に、同意した日時とポリシーの版「第1版」が残っている", async () => {
       const text = await admin.locator("main").innerText();
       has(text, bookingNo, "詳細");
@@ -170,20 +177,21 @@ async function main() {
 
     await check("月ごとの数字", "10/13 よろづや", "チェックインの月の「ネット予約」に 1件・2名・3泊・27,000円、キャンセル 0件。0件の月は 0件と出る", async () => {
       const { mine, all } = await statsOf(admin);
-      const line = (label) => mine.split(/\r?\n/).find((l) => l.startsWith(label)) ?? "";
-      must(mine, `${T.month} の表が無い`);
-      for (const v of ["1件", "2名", "3泊", "27,000円"]) has(line("ネット予約"), v, "ネット予約の行");
-      has(line("合計"), "1件", "合計の行"); has(line("キャンセル"), "0件", "キャンセルの行");
-      must(all.some((t) => !t.startsWith(mine.slice(0, 8)) && /合計\s+0件\s+0名\s+0泊\s+0円/.test(t)), "0件の月が 0 と出ていない");
+      must(mine, `${T.month} の札が無い`);
+      for (const v of ["1件", "2名", "3泊", "27,000円"]) has(mine.web, v, "ネット予約の行");
+      has(mine.total, "1件", "合計の行"); has(mine.cancelled, "キャンセル 0件", "キャンセルの札");
+      must(all.some((x) => x.month !== T.month && x.rows.total === "合計 0件 0名 0泊 0円"), "0件の月が 0 と出ていない");
     });
     await admin.goto(`${API}/admin/b/${bookingNo}`);
     await admin.waitForSelector("#doCancel", { timeout: 10000 }).catch(() => {});
 
     // ---------- b. 取り消す ----------
-    admin.once("dialog", (d) => d.accept());
+    // キャンセルのボタン → 確かめの窓（Bootstrap の modal）の「キャンセルにする」
     await admin.click("#doCancel").catch(() => {});
-    await admin.waitForSelector("h1 .tag.c", { timeout: 10000 }).catch(() => {});
-    await check("K5", "R5-7・R6-5", "管理画面でキャンセルすると、予約が「キャンセル」と表示される", async () => {
+    await admin.waitForSelector("#cancelModal.show #doCancelOk", { timeout: 5000 }).catch(() => {});
+    await admin.click("#doCancelOk").catch(() => {});
+    await admin.waitForSelector("h1 .badge.text-bg-secondary", { timeout: 10000 }).catch(() => {});
+    await check("K5", "R5-7・R6-5", "管理画面でキャンセルすると（確かめの窓で「キャンセルにする」）、予約が「キャンセル」と表示される", async () => {
       has(await admin.locator("h1").innerText(), "キャンセル", "詳細の見出し");
       must((await admin.locator("#doCancel").count()) === 0, "キャンセルのボタンが残っている");
     });
@@ -194,7 +202,7 @@ async function main() {
     });
     await check("K5", "R5-7・R6-5", "キャンセルした予約の詳細が見られる（内容と取り消した日時が残る）", async () => {
       await admin.goto(`${API}/admin/b/${bookingNo}`);
-      await admin.waitForSelector("dl", { timeout: 10000 });
+      await admin.waitForSelector("#history", { timeout: 10000 });
       const text = await admin.locator("main").innerText();
       has(text, bookingNo, "詳細"); has(text, GUEST.name, "詳細"); has(text, "27,000円", "詳細");
       must(/キャンセル\s*\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(text), "キャンセルの日時が無い");
@@ -209,13 +217,90 @@ async function main() {
       await admin.waitForSelector("h2", { timeout: 10000 });
       has(await admin.locator("main").innerText(), "キャンセルした予約", "日の予約");
       await admin.goto(`${API}/admin?m=${T.month}`);
-      await admin.waitForSelector(".cal a[data-go]");
-      has(await admin.locator(`.cal a[href="/admin/d/${T.checkin}"]`).innerText(), "0/3件", "月の表");
+      await admin.waitForSelector(".heat-grid a[data-go]");
+      has(await admin.locator(`.heat-grid a[href="/admin/d/${T.checkin}"]`).innerText(), "0/3件", "月の表");
     });
     await check("月ごとの数字", "10/13 よろづや", "キャンセルすると、件数・金額から外れ、キャンセルに 1件と出る", async () => {
       const { mine } = await statsOf(admin);
-      const line = (label) => mine.split(/\r?\n/).find((l) => l.startsWith(label)) ?? "";
-      has(line("ネット予約"), "0件", "ネット予約の行"); has(line("合計"), "0円", "合計の行"); has(line("キャンセル"), "1件", "キャンセルの行");
+      has(mine.web, "0件", "ネット予約の行"); has(mine.total, "0円", "合計の行"); has(mine.cancelled, "キャンセル 1件", "キャンセルの札");
+    });
+
+    // ---------- 見た目の設定（基本設計書 追補 2026-10-13 S-03） ----------
+    const SHU = "rgb(186, 74, 37)", GREEN = "rgb(24, 61, 67)";
+    const btnColor = (page, sel) => page.locator(sel).first().evaluate((el) => getComputedStyle(el).backgroundColor);
+    await check("設定", "S-03", "色を変える前は、管理画面も予約画面も朱", async () => {
+      await admin.goto(`${API}/admin/settings`);
+      await admin.waitForSelector("#saveTheme", { timeout: 10000 });
+      must((await admin.locator("html").getAttribute("data-theme")) === "shu", "管理画面が朱でない");
+      must((await btnColor(admin, "#saveTheme")) === SHU, `管理画面のボタンの色が ${await btnColor(admin, "#saveTheme")}`);
+      await openEmbed(guest);
+      must((await btnColor(guest, '[data-go="quote"]')) === SHU, `予約画面のボタンの色が ${await btnColor(guest, '[data-go="quote"]')}`);
+    });
+    await check("設定", "S-03", "管理画面の「設定」で緑にして保存すると、管理画面がすぐ緑になり、変更履歴に だれが・朱 → 緑 が残る", async () => {
+      await admin.check('input[name="theme"][value="green"]');
+      await admin.click("#saveTheme");
+      await admin.waitForSelector("#thMsg .alert", { timeout: 10000 });
+      await admin.mouse.move(0, 300); // ボタンの上から外し、色の移り変わり（0.15 秒）を待つ（押したままの色を読まない）
+      await admin.waitForTimeout(400);
+      must((await admin.locator("html").getAttribute("data-theme")) === "green", "管理画面の属性が緑でない");
+      must((await btnColor(admin, "#saveTheme")) === GREEN, `管理画面のボタンの色が ${await btnColor(admin, "#saveTheme")}`);
+      const hist = await admin.locator("#thHist").innerText();
+      has(hist, "朱 → 緑", "変更履歴"); has(hist, "e2e-ok", "変更履歴の「だれが」");
+      await admin.goto(`${API}/admin`);
+      await admin.waitForSelector(".heat-grid a[data-go]");
+      must((await admin.locator("html").getAttribute("data-theme")) === "green", "開き直した管理画面が緑でない");
+    });
+    await check("設定", "S-03", "お客さまが次に予約画面を開くと緑で出る", async () => {
+      await openEmbed(guest);
+      must((await btnColor(guest, '[data-go="quote"]')) === GREEN, `予約画面のボタンの色が ${await btnColor(guest, '[data-go="quote"]')}`);
+    });
+    await check("設定", "S-03", "知らない色は断り、色は変わらない", async () => {
+      const r = await ctx.request.post(`${API}/admin/api/settings`, { headers: { "X-Ybk": "1", "Content-Type": "application/json", Origin: API, Cookie: `ybk_s=${await sessionCookie("sub-ok")}` }, data: { theme: "purple" } });
+      const j = await r.json();
+      must(r.status() === 400 && j.errors?.theme === "色を選んでください", `答えが ${r.status()} ${JSON.stringify(j)}`);
+      await openEmbed(guest);
+      must((await btnColor(guest, '[data-go="quote"]')) === GREEN, "色が変わった");
+    });
+
+    // ---------- 予約画面の配り方（S-04）：STUDIO の枠（iframe）の中 ----------
+    await check("配り方", "S-04", "単独で開くと、上の帯と下のボタンは画面に固定される", async () => {
+      await openEmbed(guest);
+      const pos = await guest.evaluate(() => [getComputedStyle(document.querySelector('[data-step="1"] .app-top')).position, getComputedStyle(document.querySelector('[data-step="1"] .app-cta')).position]);
+      must(pos[0] === "sticky" && pos[1] === "fixed", `上の帯 ${pos[0]}・下のボタン ${pos[1]}`);
+    });
+    await check("配り方", "S-04", "STUDIO の枠の形（親ページに parent-height.html）では、帯もボタンも固定せず中身のすぐ下に置き、枠の高さが中身に合い、STEP を進めると親が先頭へ動かす", async () => {
+      const outer = await ctx.newPage();
+      await outer.setViewportSize({ width: 375, height: 800 });
+      await outer.goto(EMBED + "framed");
+      const fr = outer.frameLocator("sandbox-iframe iframe");
+      await fr.locator(".ybk-cal button[data-day]").first().waitFor({ timeout: 15000 });
+      const frame = outer.frames().find((f) => f !== outer.mainFrame());
+      const pos = await frame.evaluate(() => [document.documentElement.classList.contains("ybk-framed"), getComputedStyle(document.querySelector('[data-step="1"] .app-top')).position, getComputedStyle(document.querySelector('[data-step="1"] .app-cta')).position]);
+      must(pos[0] && pos[1] === "static" && pos[2] === "static", `枠の印 ${pos[0]}・上の帯 ${pos[1]}・下のボタン ${pos[2]}`);
+      await outer.waitForTimeout(500);
+      const sizes = async () => ({ box: await outer.evaluate(() => document.querySelector("sandbox-iframe").getBoundingClientRect().height), inner: await frame.evaluate(() => Math.ceil(document.getElementById("ybk").getBoundingClientRect().bottom)) });
+      let s = await sizes();
+      must(Math.abs(s.box - s.inner) <= 4, `枠の高さ ${s.box}・中身 ${s.inner}（ybk-h が届いていない）`);
+      const cta = await frame.evaluate(() => { const r = document.querySelector('[data-step="1"] .app-cta').getBoundingClientRect(), y = document.getElementById("ybk").getBoundingClientRect(); return y.bottom - r.bottom; });
+      must(cta >= 0 && cta < 40, `下のボタンが中身のいちばん下にない（下との間 ${cta}px）`);
+      await frame.locator(`.ybk-cal button[data-day]:not([disabled])`).first().click();
+      await frame.locator('[data-go="quote"]').click();
+      await frame.locator('[data-step="2"]:not([hidden])').waitFor({ timeout: 10000 });
+      await outer.waitForTimeout(1200);
+      must((await outer.evaluate(() => window.scrollY)) > 0, "STEP を進めても親が先頭へ動かない（ybk-top）");
+      s = await sizes();
+      must(Math.abs(s.box - s.inner) <= 4, `STEP 2 で枠の高さ ${s.box}・中身 ${s.inner}`);
+      await outer.close();
+    });
+    await check("配り方", "S-04", "前の埋め込み（web/embed.html を丸ごと貼る形）も、いまの Worker で空きと料金まで動く（本番の差し替えまでの間）", async () => {
+      const old = await ctx.newPage();
+      await old.goto(EMBED + "old");
+      await old.waitForSelector(".ybk-cal button[data-day]:not([disabled])", { timeout: 15000 });
+      await old.locator(".ybk-cal button[data-day]:not([disabled])").first().click();
+      await old.click('[data-go="quote"]');
+      await old.waitForSelector('.ybk-step[data-step="2"]:not([hidden])', { timeout: 10000 });
+      has(await old.locator('.ybk-step[data-step="2"] [data-sum]').innerText(), "お支払い", "前の埋め込みの料金");
+      await old.close();
     });
 
     // ---------- c. ログイン ----------

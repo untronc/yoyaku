@@ -77,3 +77,15 @@ export async function startLocal({ state, users }) {
   await waitFor(EMBED, "予約画面の確認ページ", emb, 15000);
   return { wr, sql: (command) => JSON.parse(runWrangler(["d1", "execute", "DB", "--local", "-c", SITE_CONFIG, "--persist-to", state, "--json", "--command", command], "D1 の読み取り"))[0].results };
 }
+
+/** 予約画面（アプリ風）の泊数・人数を − ＋ で v に合わせる（key：nights・guests）。合わせられない値（範囲の外）なら false */
+export async function setCount(page, key, v) {
+  for (let i = 0; i < 80; i++) {
+    const now = parseInt(await page.locator(`#ybk [data-sv="${key}"]`).innerText(), 10);
+    if (now === Number(v)) return true;
+    const btn = page.locator(`#ybk [data-step-k="${key}"][data-d="${now < v ? 1 : -1}"]`);
+    if (await btn.isDisabled()) return false;
+    await btn.click();
+  }
+  return false;
+}
