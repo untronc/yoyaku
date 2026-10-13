@@ -175,7 +175,7 @@ async function main() {
       has(text, "テスト環境のため送っていない", "メール欄");
     });
 
-    await check("月ごとの数字", "10/13 よろづや", "チェックインの月の「ネット予約」に 1件・2名・3泊・27,000円、キャンセル 0件。0件の月は 0件と出る", async () => {
+    await check("月ごとの数字", "10/13 宿の依頼", "チェックインの月の「ネット予約」に 1件・2名・3泊・27,000円、キャンセル 0件。0件の月は 0件と出る", async () => {
       const { mine, all } = await statsOf(admin);
       must(mine, `${T.month} の札が無い`);
       for (const v of ["1件", "2名", "3泊", "27,000円"]) has(mine.web, v, "ネット予約の行");
@@ -220,7 +220,7 @@ async function main() {
       await admin.waitForSelector(".heat-grid a[data-go]");
       has(await admin.locator(`.heat-grid a[href="/admin/d/${T.checkin}"]`).innerText(), "0/3件", "月の表");
     });
-    await check("月ごとの数字", "10/13 よろづや", "キャンセルすると、件数・金額から外れ、キャンセルに 1件と出る", async () => {
+    await check("月ごとの数字", "10/13 宿の依頼", "キャンセルすると、件数・金額から外れ、キャンセルに 1件と出る", async () => {
       const { mine } = await statsOf(admin);
       has(mine.web, "0件", "ネット予約の行"); has(mine.total, "0円", "合計の行"); has(mine.cancelled, "キャンセル 1件", "キャンセルの札");
     });

@@ -1,6 +1,6 @@
 // 画面の色と、Bootstrap に重ねる見た目（予約画面と管理画面で共用）。基本設計書 追補（2026-10-13）S-01〜03
 // 見本は紙芝居（C:\base\webapp\yoyaku\紙芝居\index.html）の「Bootstrap 版・色5（朱・減らした版）・予約画面はアプリ風」。
-// 色の決まり（nao「全部減らした版で良い」10/13）：主の色1つ＋灰＋白だけ。3つの色は主の色だけが違い、灰と白は同じ。エラー・注意も主の色で出す
+// 色の決まり：主の色1つ＋灰＋白だけ。3つの色は主の色だけが違い、灰と白は同じ。エラー・注意も主の色で出す
 // 色は <html data-theme="shu|green|blue"> で切り替える（3つとも CSS に入れておき、設定を変えたら属性を替えるだけですぐ効く）
 // 文字と地の差は WCAG AA の 4.5:1 以上（e2e/looks.mjs で確かめる）。白地の文字・リンクには p-text・link を使う（青は標準の #0d6efd だと白より明るい地で 4.5 に届かないので濃い方）
 
@@ -230,7 +230,7 @@ html.ybk-framed .app-top{position:static;border-radius:12px 12px 0 0}
 .app-todo b{display:block;font-size:15px}
 .app-todo span{display:block;font-size:13.5px;color:var(--mid)}
 .app-cta{position:fixed;left:0;right:0;bottom:0;margin:0 auto;max-width:480px;z-index:1030;background:#fff;padding:10px 16px calc(12px + env(safe-area-inset-bottom));box-shadow:0 -1px 0 rgba(0,0,0,.06),0 -8px 24px rgba(0,0,0,.06)}
-html.ybk-framed .app-cta{position:static;margin:4px 0 0;padding:0;max-width:none;background:transparent;box-shadow:none}  /* 枠の中では下の帯にしない（中身のすぐ下に合計とボタン）。nao「フッターはなくてもいい」10/13 */
+html.ybk-framed .app-cta{position:static;margin:4px 0 0;padding:0;max-width:none;background:transparent;box-shadow:none}  /* 枠の中では下の帯にしない（中身のすぐ下に合計とボタン）。*/
 .app-total{display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-size:13px;color:var(--mid);margin-bottom:8px}
 .app-total b{font-size:18px;color:var(--ink)}
 .app-cta-btn{display:flex;align-items:center;justify-content:center;width:100%;min-height:54px;border-radius:14px;font-size:16px;font-weight:700}

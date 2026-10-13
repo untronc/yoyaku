@@ -299,7 +299,7 @@ describe("HTTPS だけ", () => {
   });
 });
 
-describe("月ごとの数字（2026-10-13 よろづやの依頼）", () => {
+describe("月ごとの数字（2026-10-13 宿の依頼）", () => {
   const at = new Date().toISOString();
   const put = (id, source, status, checkin, checkout, nights, guests, pay, name = "山田 花子") =>
     env.DB.prepare("INSERT INTO bookings (id, source, status, checkin, checkout, nights, guests, per_person, total, discount, pay, price_version, name, mail_guest, mail_inn, received_at, created_at, created_by, updated_at, updated_by) VALUES (?,?,?,?,?,?,?,0,?,0,?,'r1',?,'none','none',?,?,'t',?,'t')")

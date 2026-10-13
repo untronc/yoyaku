@@ -95,7 +95,7 @@ export async function handleAdminApi(site, env, request, user, now = new Date())
         return { month: q.m, days };
       }
       case "GET /stats": {
-        // 月ごとの数字（2026-10-13 よろづやの依頼）。チェックインの月に、件数・人数・泊数・金額（保存してある pay）を全部入れる。
+        // 月ごとの数字（2026-10-13 宿の依頼）。チェックインの月に、件数・人数・泊数・金額（保存してある pay）を全部入れる。
         // キャンセルは件数だけ。名前に「テスト」「試験」を含む試しの予約は入れない。受付を始めた月から受付期間の最後の月まで、0件の月も並べる
         const first = site.bookingStart.slice(0, 7), last = monthOf(addDays(todayJst(now), site.bookingDaysAhead));
         const { results } = await db

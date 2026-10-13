@@ -1,4 +1,4 @@
-// 入力チェックの正本。ClaudeCode_入力チェック仕様_2026-10-13.md の表を「データ」にしたもの（2026-10-13 nao「必ず仕様決めて仕様通りに入力チェックが動くように」）。
+// 入力チェックの正本。ClaudeCode_入力チェック仕様_2026-10-13.md の表を「データ」にしたもの。
 // サーバー（book.js・admin.js・rules.js）も画面（/validate.js を読む予約画面と管理画面）も、ここの validate で判定する。試験（test/field-cases.js）もこの表から作る。
 // makeFields は画面にそのまま文字にして配る（/validate.js）。中で外の名前を使わないこと（import した物・この関数の外の変数は画面に無い）
 export function makeFields() {

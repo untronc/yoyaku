@@ -137,7 +137,7 @@ const SCRIPT = String.raw`
   window.addEventListener('pagehide', flushLog);
 
   // info はアクセス記録の「内容」に入る（個人情報を入れない）
-  // 読むだけの呼び出し（GET：calendar・quote）は 12 秒で打ち切り、1回だけ取り直す（2026-10-06 nao「読み込めずに固まる」）。
+  // 読むだけの呼び出し（GET：calendar・quote）は 12 秒で打ち切り、1回だけ取り直す。
   // 予約の送信（POST：book）は二重予約を避けるため、打ち切りも取り直しもしない
   var READ_TIMEOUT = 12000, READ_RETRY = 1;
   function api(params, body, info, tries) {
@@ -243,7 +243,7 @@ const SCRIPT = String.raw`
     return true;
   }
 
-  // 月のカレンダー：一度取った月は覚えておき、表示した月の次の2か月を先に取っておく（2026-10-06 nao「全部の月、カレンダー生成遅い」）。
+  // 月のカレンダー：一度取った月は覚えておき、表示した月の次の2か月を先に取っておく。
   // 同じ月を取りに行っている最中なら、その答えを待つ。表示中でない月の答えは描かない（月を続けて切り替えたときに古い月で上書きしない）
   var calCache = {}, calReq = {};
   var WEEK = W.split('').map(function (w) { return '<span class="w">' + w + '</span>'; }).join('');
