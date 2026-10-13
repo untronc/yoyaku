@@ -92,6 +92,15 @@ const SCRIPT = String.raw`
       box.querySelectorAll('[data-fk="' + k + '"]').forEach(function (c) { c.classList.toggle('is-invalid', !!(errors && errors[k])); });
     });
   }
+  // 注意が出ている欄を直し始めたら、その欄の注意を消す（もう一度判定するのは保存・登録を押したとき）
+  function clearOnEdit(ev) {
+    var t = ev.target && ev.target.closest && ev.target.closest('[data-fk]');
+    if (!t || !t.classList.contains('is-invalid')) return;
+    var k = t.getAttribute('data-fk'), box = t.closest('form, .card, main') || document;
+    showErrs(box, {}, [k]);
+  }
+  document.addEventListener('input', clearOnEdit);
+  document.addEventListener('change', clearOnEdit);
   /** 画面で判定する。まちがいがあれば欄の下に出して false（送らない） */
   function checkForm(box, form, input, ctx) {
     if (!window.YBK_FIELDS) return true;

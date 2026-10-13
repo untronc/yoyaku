@@ -221,6 +221,14 @@ const SCRIPT = String.raw`
     });
     sendHeight();
   }
+  // 注意が出ている欄を直し始めたら、その欄の注意を消す（もう一度判定するのは次へ進むとき）
+  function clearOnEdit(ev) {
+    var t = ev.target && ev.target.closest && ev.target.closest('[data-fk]');
+    if (!t || !t.classList.contains('is-invalid')) return;
+    showErrs([t.getAttribute('data-fk')], {});
+  }
+  root.addEventListener('input', clearOnEdit);
+  root.addEventListener('change', clearOnEdit);
   // その STEP の項目を判定し、まちがいを欄の下に出す。まちがいが無ければ true
   function checkStep(n, form) {
     if (!window.YBK_FIELDS) return true;
