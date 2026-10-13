@@ -4,13 +4,17 @@
 //   /admin/b/<予約番号>   予約通知メールのリンク。管理画面のその予約を開く
 //   /admin/login・/admin/callback・/admin/logout
 //   /admin/api/...       管理画面の API（admin.js）
-//   /validate.js         画面の入力チェック（src/fields.js をこの施設の値つきで配る。予約画面と管理画面が読む）
+//   /validate.js         画面の入力チェック（src/fields.js をこの施設の値つきで配る。管理画面と、前の埋め込み web/embed.html が読む）
+//   /embed.js            予約画面（STUDIO の埋め込みはこれを読む数行だけ。src/embed-page.js。いまの色を入れて配る）
+//   /vendor/...          Bootstrap・Bootstrap Icons（Worker の静的ファイル public/。ここには来ない。src/assets.js）
 import { handleAdminApi } from "./admin.js";
 import { adminPage, messagePage } from "./admin-page.js";
 import { handleApi } from "./api.js";
 import { admit, clearStateCookie, currentUser, finishLogin, logoutCookie, startLogin } from "./auth.js";
 import { dailyCleanup } from "./cron.js";
+import { embedJs } from "./embed-page.js";
 import { validateJs } from "./fields.js";
+import { currentTheme } from "./settings.js";
 
 const SECURITY = {
   "X-Frame-Options": "DENY",
@@ -54,18 +58,23 @@ export function createWorker(site, opts = {}) {
       if (p === "/validate.js") {
         return new Response(validateJs(site), { headers: { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "public, max-age=300", "X-Content-Type-Options": "nosniff" } });
       }
+      if (p === "/embed.js") {
+        // 色を変えたら次に開いたときから効くように、毎回確かめてもらう（no-cache）
+        const js = embedJs(site, await currentTheme(env.DB), url.origin);
+        return new Response(js, { headers: { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "no-cache", "X-Content-Type-Options": "nosniff" } });
+      }
       if (p === "/admin/login") return startLogin(site, env, url.searchParams.get("next"));
       if (p === "/admin/callback") {
         const who = await finishLogin(site, env, request);
-        if (who.error) return html(messagePage(site, who.error, true), 400, { "Set-Cookie": clearStateCookie() });
+        if (who.error) return html(messagePage(site, who.error, true, await currentTheme(env.DB)), 400, { "Set-Cookie": clearStateCookie() });
         const c = await admit(site, env, who);
-        if (!c) return html(messagePage(site, "このアカウント（" + who.email + "）では使えません。", true), 403, { "Set-Cookie": clearStateCookie() });
+        if (!c) return html(messagePage(site, "このアカウント（" + who.email + "）では使えません。", true, await currentTheme(env.DB)), 403, { "Set-Cookie": clearStateCookie() });
         const h = new Headers({ Location: who.next, "Cache-Control": "no-store" });
         h.append("Set-Cookie", c);
         h.append("Set-Cookie", clearStateCookie());
         return new Response(null, { status: 302, headers: h });
       }
-      if (p === "/admin/logout") return html(messagePage(site, "ログアウトしました。", true), 200, { "Set-Cookie": logoutCookie() });
+      if (p === "/admin/logout") return html(messagePage(site, "ログアウトしました。", true, await currentTheme(env.DB)), 200, { "Set-Cookie": logoutCookie() });
       if (p === "/admin" || p.startsWith("/admin/")) {
         const user = await currentUser(site, env, request);
         if (p.startsWith("/admin/api/")) {
@@ -73,7 +82,7 @@ export function createWorker(site, opts = {}) {
           return handleAdminApi(site, env, request, user, clock());
         }
         if (!user) return new Response(null, { status: 302, headers: { Location: "/admin/login?next=" + encodeURIComponent(p) } });
-        return html(adminPage(site));
+        return html(adminPage(site, await currentTheme(env.DB)));
       }
       return new Response("Not found", { status: 404 });
     }

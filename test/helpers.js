@@ -12,7 +12,7 @@ export const NOW = new Date("2026-11-01T03:00:00Z");
 
 export async function reset() {
   // FK があるので、指す側の表から先に消す
-  for (const t of ["booking_changes", "rule_changes", "bookings", "day_rules", "weekly_rules", "admin_users", "daily_counts", "access_log"]) await env.DB.prepare(`DELETE FROM ${t}`).run();
+  for (const t of ["booking_changes", "rule_changes", "setting_changes", "site_settings", "bookings", "day_rules", "weekly_rules", "admin_users", "daily_counts", "access_log"]) await env.DB.prepare(`DELETE FROM ${t}`).run();
 }
 
 export function bookBody(over = {}) {

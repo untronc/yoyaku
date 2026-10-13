@@ -35,6 +35,8 @@ export function makeFields() {
     weekday: { key: "weekday", label: "曜日", kind: "int", required: true, lo: 0, hi: 6, msg: "曜日が正しくありません" },
     stop: { key: "stop", label: "定休日にする", kind: "flag" },
     month: { key: "month", label: "月", kind: "month", required: true, msg: "月の形が正しくありません" },
+    // 管理画面の「設定」：画面の色（朱・緑・青。基本設計書 追補 2026-10-13 S-03）。並びは src/theme.js の THEME_KEYS と同じ
+    theme: { key: "theme", label: "画面の色", kind: "pick", required: true, options: function () { return ["shu", "green", "blue"]; }, msg: "色を選んでください" },
   };
   function withReq(f, required) { var o = {}; for (var k in f) o[k] = f[k]; o.required = required; return o; }
 
@@ -54,6 +56,8 @@ export function makeFields() {
     rulesDay: [F.from, F.to, F.action, F.limit],
     rulesWeekly: [F.weekday, F.stop],
     month: [F.month],
+    // 管理画面：設定（/settings）
+    settings: [F.theme],
   };
 
   // ----- 整える処理 -----

@@ -346,3 +346,77 @@ describe("月ごとの数字（2026-10-13 よろづやの依頼）", () => {
     expect((await call("/admin/api/stats")).status).toBe(401);
   });
 });
+
+describe("見た目の設定（基本設計書 追補 2026-10-13 S-03）と予約画面の配り方（S-04）", () => {
+  const themeOfAdmin = async (c) => /<html lang="ja" data-theme="(\w+)"/.exec(await (await call("/admin", { headers: { Cookie: c } })).text())?.[1];
+  const themeOfEmbed = async () => /"theme":"(\w+)"/.exec(await (await call("/embed.js")).text())?.[1];
+
+  it("行が無いときは朱。管理画面も予約画面も朱で出る", async () => {
+    const c = await login();
+    expect((await (await adminGet(c, "/settings")).json())).toEqual({ ok: true, theme: "shu", history: [] });
+    expect(await themeOfAdmin(c)).toBe("shu");
+    expect(await themeOfEmbed()).toBe("shu");
+  });
+
+  it("色を変えると、管理画面と予約画面の両方の色が変わり、変更履歴に だれが・いつ・前→後 が残る（FK で利用者と設定を指す）", async () => {
+    const c = await login();
+    const j = await (await adminPost(c, "/settings", { theme: "green" })).json();
+    expect(j.ok).toBe(true);
+    expect(j.theme).toBe("green");
+    expect(j.history).toEqual([{ key: "theme", before: "shu", after: "green", at: NOW.toISOString(), by: "運用者" }]);
+    expect(await themeOfAdmin(c)).toBe("green");
+    expect(await themeOfEmbed()).toBe("green");
+    await adminPost(c, "/settings", { theme: "blue" });
+    expect(await themeOfEmbed()).toBe("blue");
+    const h = (await (await adminGet(c, "/settings")).json()).history;
+    expect(h.map((x) => `${x.before}→${x.after}`).sort()).toEqual(["green→blue", "shu→green"]);
+    const fk = await env.DB.prepare("SELECT c.setting_key, u.email FROM setting_changes c JOIN admin_users u ON u.id = c.changed_by_user_id JOIN site_settings s ON s.setting_key = c.setting_key").all();
+    expect(fk.results).toHaveLength(2);
+    expect(fk.results[0].email).toBe("operator@example.com");
+  });
+
+  it("知らない値は断り、何も残さない。同じ色は「変わったところがありません」。ログインしていなければ 401", async () => {
+    const c = await login();
+    for (const bad of ["red", "", "SHU", null]) {
+      const res = await adminPost(c, "/settings", { theme: bad });
+      expect(res.status).toBe(400);
+      expect((await res.json()).errors).toEqual({ theme: "色を選んでください" });
+    }
+    expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM setting_changes").first()).n).toBe(0);
+    expect(await themeOfEmbed()).toBe("shu");
+    expect((await (await adminPost(c, "/settings", { theme: "shu" })).json()).error).toBe("変わったところがありません");
+    expect((await call("/admin/api/settings")).status).toBe(401);
+    expect((await call("/admin/api/settings", { method: "POST", headers: { "X-Ybk": "1", "Content-Type": "application/json" }, body: JSON.stringify({ theme: "green" }) })).status).toBe(401);
+  });
+
+  it("D1 の値が壊れていても（知らない色）朱で出す", async () => {
+    const at = NOW.toISOString();
+    await env.DB.prepare("INSERT INTO site_settings (setting_key, value, created_at, created_by, updated_at, updated_by) VALUES ('theme', 'purple', ?, 't', ?, 't')").bind(at, at).run();
+    expect(await themeOfEmbed()).toBe("shu");
+  });
+
+  it("/embed.js：入力チェック・施設の文面・この Worker の住所を入れて配る。宛先・アカウントは入れない。毎回確かめてもらう（no-cache）", async () => {
+    const res = await call("/embed.js");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toBe("text/javascript; charset=utf-8");
+    expect(res.headers.get("Cache-Control")).toBe("no-cache");
+    const js = await res.text();
+    expect(js).toContain("window.YBK_FIELDS = (function");
+    expect(js).toContain('"api":"https://yoyaku.example.jp/api"');
+    expect(js).toContain("/vendor/bootstrap-5.3.3/bootstrap.min.css");
+    expect(js).toContain(JSON.stringify(site.cancelPolicy));
+    for (const secret of [...site.admins, site.mail.notifyTo, site.mail.from]) expect(js).not.toContain(secret);
+    // 前の埋め込み（web/embed.html）が使う API・validate.js はそのまま
+    expect((await (await call("/api?action=ping", { headers: { Origin: STUDIO } })).json()).ok).toBe(true);
+    expect((await call("/validate.js")).status).toBe(200);
+  });
+
+  it("管理画面は Bootstrap と Bootstrap Icons を同じ Worker の /vendor/ から読む（CDN に頼らない）", async () => {
+    const c = await login();
+    const html = await (await call("/admin", { headers: { Cookie: c } })).text();
+    expect(html).toContain('href="/vendor/bootstrap-5.3.3/bootstrap.min.css"');
+    expect(html).toContain('href="/vendor/bootstrap-icons-1.11.3/bootstrap-icons.min.css"');
+    expect(html).toContain('src="/vendor/bootstrap-5.3.3/bootstrap.bundle.min.js"');
+    expect(html).not.toMatch(/cdn\.|jsdelivr|unpkg/);
+  });
+});

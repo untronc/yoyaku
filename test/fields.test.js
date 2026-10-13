@@ -155,3 +155,16 @@ describe("画面に配る入力チェック（GET /validate.js）", () => {
     for (const secret of [...site.admins, site.mail.notifyTo, site.mail.from]) expect(js).not.toContain(secret);
   });
 });
+
+describe("管理画面：設定 画面の色（POST /admin/api/settings）", () => {
+  it.each(fieldCases("settings", site, ctx()).map((c) => [title(c), c]))("%s", async (_, c) => {
+    const cookie = await login();
+    const j = await admin(cookie, "/settings", c.input);
+    // 既定の朱をもう一度選ぶのは「変わったところがありません」（入力のまちがいではない）
+    if (!c.expect && c.value === "shu") { expect(j).toEqual({ ok: false, error: "変わったところがありません" }); return; }
+    judged(j, c);
+    const row = await one("SELECT value FROM site_settings WHERE setting_key = 'theme'");
+    if (c.expect) { expect(row).toBeNull(); expect(await count("setting_changes")).toBe(0); }
+    else expect(row.value).toBe(c.value);
+  });
+});

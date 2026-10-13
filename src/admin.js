@@ -3,6 +3,7 @@ import { stayFields, bookingNo } from "./book.js";
 import { FieldError, validOrThrow } from "./fields.js";
 import { addDays, daysIn, monthOf, parseYmd, todayJst, ymd } from "./dates.js";
 import { limitOf, loadRules, occupancy, price, stoppedOn } from "./rules.js";
+import { currentTheme, setTheme, settingHistory } from "./settings.js";
 
 const AUDIT = "created_at, created_by, updated_at, updated_by";
 class Bad extends Error {}
@@ -271,6 +272,15 @@ export async function handleAdminApi(site, env, request, user, now = new Date())
           ruleHistory(db, user, { weekday: wd }, { stop: cur?.stop ?? 0 }, { stop }, at),
         ]);
         return { changed: 1 };
+      }
+      case "GET /settings":
+        // 見た目の設定（画面の色）。管理画面に入れる人ならだれでも見て変えられる（基本設計書 追補 2026-10-13 S-03）
+        return { theme: await currentTheme(db), history: await settingHistory(db) };
+      case "POST /settings": {
+        // 知らない色は src/fields.js で断る。変えたら変更履歴（setting_changes）に、だれが・いつ・前→後を残す
+        const { theme } = validOrThrow("settings", body, site);
+        if (!(await setTheme(db, user, theme, at))) bad("変わったところがありません");
+        return { theme, history: await settingHistory(db) };
       }
       default:
         return bad("ありません");
