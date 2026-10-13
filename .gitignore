@@ -1,0 +1,9 @@
+node_modules/
+.wrangler/
+.dev.vars
+*.bak-*
+# 施設ごとの設定（宿のメール・アカウント・D1 の ID）は公開しない。手元だけに置く
+sites/*
+# 前の鍵の道具（dev/put-secret.mjs にまとめた）
+dev/put-google-secret.*
+dev/put-resend-secret.mjs

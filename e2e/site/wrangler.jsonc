@@ -1,0 +1,9 @@
+// 受け入れ試験（e2e/accept.mjs）専用の手元の Worker。単体テストの架空の宿（test/site.fixture.js）と同じ設定で、違うのは予約画面の呼び元（手元の確認ページのポート）だけ
+// 手元の D1 だけにつなぐ（リモートの D1・本番にはつながない）。MAIL_MODE=log でメールは送らない
+{
+  "name": "yoyaku-e2e",
+  "main": "index.js",
+  "compatibility_date": "2026-08-22",
+  "d1_databases": [{ "binding": "DB", "database_name": "yoyaku-e2e", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "../../migrations" }],
+  "vars": { "MAIL_MODE": "log" }
+}
