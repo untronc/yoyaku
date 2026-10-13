@@ -55,7 +55,7 @@ jobs:
         run: npx wrangler deploy -c "sites/$SITE/wrangler.jsonc" --message "GitHub Actions ${GITHUB_SHA::7}"
       - name: 配信中の物を1回読む
         run: |
-          curl -fsS "https://yoyaku-test.untronc-nao.workers.dev/api?action=ping"
+          curl -fsS --retry 6 --retry-delay 5 --retry-all-errors "https://yoyaku-test.untronc-nao.workers.dev/api?action=ping"
           # 予約画面と Bootstrap（静的ファイル。施設の wrangler.jsonc の assets が要る）も届くか
-          curl -fsS -o /dev/null "https://yoyaku-test.untronc-nao.workers.dev/embed.js"
-          curl -fsS -o /dev/null "https://yoyaku-test.untronc-nao.workers.dev/vendor/bootstrap-5.3.3/bootstrap.min.css"
+          curl -fsS --retry 6 --retry-delay 5 --retry-all-errors -o /dev/null "https://yoyaku-test.untronc-nao.workers.dev/embed.js"
+          curl -fsS --retry 6 --retry-delay 5 --retry-all-errors -o /dev/null "https://yoyaku-test.untronc-nao.workers.dev/vendor/bootstrap-5.3.3/bootstrap.min.css"
