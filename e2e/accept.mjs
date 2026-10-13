@@ -2,28 +2,16 @@
 //   npm run accept      （または node e2e/accept.mjs）
 // 手元だけで動く：手元の D1（.wrangler/e2e-state・毎回消してマイグレーションから作り直す）・手元の wrangler dev・手元の確認ページ（dev/serve-embed.mjs）。
 // テスト環境（リモート）・本番にはつながない。メールは送らない（MAIL_MODE=log）。ブラウザは PC の Edge（ダウンロードしない）。
-// 試験の中身は ClaudeCode_受け入れ試験シナリオ_リリース2 の K2（ログイン）・K5（キャンセル）・K11（同意）・B1（予約が管理画面に出る）の手元版。
+// 試験の中身は ClaudeCode_受け入れ試験シナリオ_リリース2 の K2（ログイン）・K5（キャンセル）・K11（同意の記録）・B1（予約が管理画面に出る）の手元版。業務の流れだけを見る。
+// 入力の形（必須・長さ・形・禁止・同意の印なし など）は、入力チェックの試験（npm run fields ＝ e2e/fields.mjs）で見るので、ここからは外した（2026-10-13）。
+// 手元の道具（D1・wrangler dev・確認ページ）は e2e/local.mjs。
 // 結果は K番号・要件番号ごとに 通過／不合格 を1行ずつ出し、1つでも落ちたら終了コード 1
-import { spawn, spawnSync } from "node:child_process";
-import { randomBytes } from "node:crypto";
-import { rmSync } from "node:fs";
-import { createServer } from "node:net";
-import { fileURLToPath } from "node:url";
 import { chromium, request as pwRequest } from "playwright-core";
-import { sign } from "../src/auth.js";
+import { API, EMBED, SECRET, sessionCookie, startLocal, stopAll } from "./local.mjs";
 
-const ROOT = fileURLToPath(new URL("..", import.meta.url)).replace(/[\\/]$/, "");
-const WRANGLER = fileURLToPath(new URL("../node_modules/wrangler/bin/wrangler.js", import.meta.url));
-const SITE_CONFIG = "e2e/site/wrangler.jsonc";
 const STATE = ".wrangler/e2e-state"; // ROOT からの相対
-const API_PORT = 8786;
-const EMBED_PORT = 8788; // e2e/site/site.config.js の allowedOrigins と同じ番号
-const API = `http://localhost:${API_PORT}`;
-const EMBED = `http://localhost:${EMBED_PORT}/`;
-const SECRET = randomBytes(24).toString("hex"); // この実行だけの署名の鍵（どこにも残さない）
 const ADMIN_EMAIL = "operator@example.com"; // 施設の設定（site.admins）に入っている宛先
 
-const children = [];
 const results = [];
 const log = (...a) => console.log(...a);
 
@@ -38,43 +26,6 @@ async function check(id, req, title, fn) {
 }
 function must(cond, why) { if (!cond) throw new Error(why); }
 const has = (text, part, label) => must(String(text).includes(part), `${label}に「${part}」が出ていない（実際：${String(text).replace(/\s+/g, " ").slice(0, 120)}）`);
-
-// ----- 子プロセス -----
-function start(name, args, opts = {}) {
-  const p = spawn(process.execPath, args, { cwd: ROOT, env: { ...process.env, WRANGLER_SEND_METRICS: "false", NO_COLOR: "1", FORCE_COLOR: "0" }, stdio: ["ignore", "pipe", "pipe"], windowsHide: true, ...opts });
-  const out = [];
-  const keep = (b) => { out.push(...String(b).split(/\r?\n/).filter(Boolean)); if (out.length > 400) out.splice(0, out.length - 400); };
-  p.stdout.on("data", keep);
-  p.stderr.on("data", keep);
-  const child = { name, p, out };
-  children.push(child);
-  return child;
-}
-function stopAll() {
-  for (const c of children.splice(0)) {
-    if (c.p.exitCode !== null || !c.p.pid) continue;
-    // 自分で起動した子プロセスの木だけを止める
-    if (process.platform === "win32") spawnSync("taskkill", ["/PID", String(c.p.pid), "/T", "/F"], { stdio: "ignore" });
-    else { try { c.p.kill("SIGKILL"); } catch {} }
-  }
-}
-function runWrangler(args, what) {
-  const r = spawnSync(process.execPath, [WRANGLER, ...args], { cwd: ROOT, encoding: "utf8", env: { ...process.env, WRANGLER_SEND_METRICS: "false", NO_COLOR: "1" }, windowsHide: true });
-  if (r.status !== 0) throw new Error(`${what}に失敗：${(r.stdout + r.stderr).split(/\r?\n/).filter(Boolean).slice(-8).join(" / ")}`);
-}
-const portFree = (port) => new Promise((ok) => {
-  const s = createServer().once("error", () => ok(false)).once("listening", () => s.close(() => ok(true)));
-  s.listen(port, "127.0.0.1");
-});
-async function waitFor(url, what, child, ms = 90000) {
-  const t0 = Date.now();
-  while (Date.now() - t0 < ms) {
-    if (child.p.exitCode !== null) throw new Error(`${what}が途中で止まった：${child.out.slice(-6).join(" / ")}`);
-    try { if ((await fetch(url)).ok) return; } catch {}
-    await new Promise((r) => setTimeout(r, 400));
-  }
-  throw new Error(`${what}が${ms / 1000}秒で立ち上がらない：${child.out.slice(-6).join(" / ")}`);
-}
 
 // ----- 日付（日本時間の来月 15 日から 3 泊） -----
 function targetDates() {
@@ -116,29 +67,16 @@ async function fillGuest(page) {
   await page.selectOption('[data-f="guests"]', String(T.guests));
 }
 
-// ----- 管理画面の Cookie -----
-const sessionCookie = async (sub, secret = SECRET, exp = Date.now() + 3600000) => encodeURIComponent(await sign(secret, { sub, exp }));
-
 // =====================================================================
 async function main() {
-  for (const p of [API_PORT, EMBED_PORT]) must(await portFree(p), `ポート ${p} が使われています（ほかの作業の wrangler など）。このスクリプトは止めません`);
-
-  // 手元の D1 をまっさらにして、マイグレーションを当てる
-  rmSync(`${ROOT}/${STATE}`, { recursive: true, force: true });
-  runWrangler(["d1", "migrations", "apply", "DB", "--local", "-c", SITE_CONFIG, "--persist-to", STATE], "マイグレーション");
-  const now = new Date().toISOString();
-  const user = (id, email, sub, active) => `INSERT INTO admin_users (id, email, google_sub, display_name, active, created_at, created_by, updated_at, updated_by) VALUES ('${id}', '${email}', '${sub}', '${id}', ${active}, '${now}', 'e2e', '${now}', 'e2e')`;
-  runWrangler(["d1", "execute", "DB", "--local", "-c", SITE_CONFIG, "--persist-to", STATE, "--command",
-    [
-      user("e2e-ok", ADMIN_EMAIL, "sub-ok", 1), // 許可した人
-      user("e2e-off", "owner@example.com", "sub-off", 0), // 許可の設定にあるが、使えない状態の人
-      user("e2e-out", "outsider@example.com", "sub-out", 1), // 使える状態だが、メールアドレスが許可の設定にない人
-    ].join("; ")], "利用者の登録");
-
-  const wr = start("wrangler dev", [WRANGLER, "dev", "-c", SITE_CONFIG, "--port", String(API_PORT), "--persist-to", STATE, "--var", `SESSION_SECRET:${SECRET}`, "--show-interactive-dev-session=false"]);
-  const emb = start("serve-embed", ["dev/serve-embed.mjs", String(EMBED_PORT), `${API}/api`]);
-  await waitFor(`${API}/api?action=ping`, "wrangler dev", wr);
-  await waitFor(EMBED, "予約画面の確認ページ", emb, 15000);
+  const { wr } = await startLocal({
+    state: STATE,
+    users: [
+      { id: "e2e-ok", email: ADMIN_EMAIL, sub: "sub-ok", active: 1 }, // 許可した人
+      { id: "e2e-off", email: "owner@example.com", sub: "sub-off", active: 0 }, // 許可の設定にあるが、使えない状態の人
+      { id: "e2e-out", email: "outsider@example.com", sub: "sub-out", active: 1 }, // 使える状態だが、メールアドレスが許可の設定にない人
+    ],
+  });
 
   const browser = await chromium.launch({ channel: "msedge", headless: true });
   const ctx = await browser.newContext({ viewport: { width: 1000, height: 1400 }, locale: "ja-JP", timezoneId: "Asia/Tokyo" });
@@ -172,18 +110,8 @@ async function main() {
     await guest.click('[data-go="confirm"]');
     await guest.waitForSelector('.ybk-step[data-step="3"]:not([hidden])');
 
-    // 同意の印なしで確定（キャンセル料への同意だけ付ける）
+    // 同意の印を2つ付けて確定（印なしで断るのは e2e/fields.mjs）
     await guest.check('[data-f="agree"]');
-    await guest.click('[data-go="book"]');
-    await guest.waitForTimeout(600);
-    await check("K11", "R5-18・R6-11", "プライバシーポリシーの同意の印なしで確定を押すと、断る文が出て送信されない", async () => {
-      has(await guest.locator('[data-msg="3"]').innerText(), "プライバシーポリシーへの同意が必要です", "断る文");
-      must(!(await guest.locator('.ybk-step[data-step="4"]').isVisible()), "完了画面に進んでしまった");
-      must(bookPosts.length === 0, "予約の送信が出ている");
-      must((await calRooms(T.checkin)) === 3, "印なしなのに空きが減った");
-    });
-
-    // 印を付けて確定
     await guest.check('[data-f="privacy"]');
     await guest.click('[data-go="book"]');
     await guest.waitForSelector('.ybk-step[data-step="4"]:not([hidden])', { timeout: 20000 }).catch(() => {});

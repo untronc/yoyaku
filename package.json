@@ -11,6 +11,7 @@
     "test": "vitest run",
     "dev": "wrangler dev --port 8796",
     "accept": "node e2e/accept.mjs",
+    "fields": "node e2e/fields.mjs",
     "db:local": "wrangler d1 migrations apply DB --local"
   },
   "devDependencies": {
