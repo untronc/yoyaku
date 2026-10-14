@@ -46,6 +46,13 @@ function stay(site, body, version, now) {
   return { checkin, checkout, nights, guests, price: price(site, guests, nights, version) };
 }
 
+/** お支払いの値。手入力（custom）なら入れた合計（割引なし）、定価（list）なら料金表の計算（要件差分 第2版 H-2・H-4・H-7） */
+function money(v, p) {
+  return v.priceMode === "custom"
+    ? { price_mode: "custom", total: v.customPay, discount: 0, pay: v.customPay }
+    : { price_mode: "list", total: p.total, discount: p.discount, pay: p.pay };
+}
+
 async function names(db) {
   const { results } = await db.prepare("SELECT id, display_name, email FROM admin_users").all();
   const map = {};
@@ -152,13 +159,22 @@ export async function handleAdminApi(site, env, request, user, now = new Date())
         const b = (await db.prepare("SELECT * FROM bookings WHERE id = ?").bind(String(body.id)).first()) || bad("予約が見つかりません");
         if (b.status === "cancelled") bad("キャンセルした予約は変えられません");
         // 料金は予約したときの料金表で計算し直す。満室・受付停止の日への変更も受ける（宿の判断。要件 5節）
-        const s = stay(site, body, b.price_version, now);
-        const after = { ...b, checkin: ymd(s.checkin), checkout: ymd(s.checkout), nights: s.nights, guests: s.guests, per_person: s.price.perPerson, total: s.price.total, discount: s.price.discount, pay: s.price.pay };
+        // 金額の入れ方を送らない変更（前の版の画面など）は、いまの入れ方と合計のまま（手入力の予約を黙って定価に戻さない。qa 2026-10-15）
+        const keep = String(body.priceMode ?? "").trim() === "" && b.price_mode === "custom" ? { priceMode: "custom", customPay: b.pay } : {};
+        const v = validOrThrow("change", { ...body, ...keep }, site, { now });
+        // 金額の手入力は電話・LINE の予約だけ（要件差分 第2版 H-1）
+        if (v.priceMode === "custom" && b.source !== "manual") bad("予約画面からの予約は、金額を手入力にできません");
+        const s = stay(site, v, b.price_version, now);
+        // 手入力のときは送られた合計のまま（日付・人数を変えても計算し直さない。H-6）。定価に戻したら料金表で計算し直す（H-7）
+        const m = money(v, s.price);
+        const after = { ...b, checkin: ymd(s.checkin), checkout: ymd(s.checkout), nights: s.nights, guests: s.guests, per_person: s.price.perPerson, ...m };
         if (JSON.stringify(stayFields(after)) === JSON.stringify(stayFields(b))) bad("変わったところがありません");
+        // 日付か人数が変わったら「日付・人数の変更」、金額だけなら「金額の変更」
+        const kind = ["checkin", "nights", "guests"].some((k) => after[k] !== b[k]) ? "change" : "price";
         await db.batch([
-          db.prepare("UPDATE bookings SET checkin = ?, checkout = ?, nights = ?, guests = ?, per_person = ?, total = ?, discount = ?, pay = ?, updated_at = ?, updated_by = ? WHERE id = ?")
-            .bind(after.checkin, after.checkout, after.nights, after.guests, after.per_person, after.total, after.discount, after.pay, at, who, b.id),
-          bookingHistory(db, user, b.id, "change", stayFields(b), stayFields(after), at),
+          db.prepare("UPDATE bookings SET checkin = ?, checkout = ?, nights = ?, guests = ?, per_person = ?, total = ?, discount = ?, pay = ?, price_mode = ?, updated_at = ?, updated_by = ? WHERE id = ?")
+            .bind(after.checkin, after.checkout, after.nights, after.guests, after.per_person, after.total, after.discount, after.pay, after.price_mode, at, who, b.id),
+          bookingHistory(db, user, b.id, kind, stayFields(b), stayFields(after), at),
         ]);
         return { id: b.id };
       }
@@ -194,10 +210,12 @@ export async function handleAdminApi(site, env, request, user, now = new Date())
         const s = stay(site, v, site.price.current, now);
         const { name, tel, memo } = v;
         const full = await fullNights(site, db, s.checkin, s.checkout);
+        // 金額の手入力（要件差分 第2版）：入れた合計がお支払い。割引は掛けない。料金表の 1名1泊 は残す（解除したときと画面のグレー表示に使う）
+        const m = money(v, s.price);
         // 満室・受付停止の日への登録も、知らせを出したうえで受ける（画面で知らせる）
         const bk = {
           source: "manual", status: "booked", checkin: ymd(s.checkin), checkout: ymd(s.checkout), nights: s.nights, guests: s.guests,
-          per_person: s.price.perPerson, total: s.price.total, discount: s.price.discount, pay: s.price.pay, price_version: site.price.current,
+          per_person: s.price.perPerson, total: m.total, discount: m.discount, pay: m.pay, price_mode: m.price_mode, price_version: site.price.current,
           name, tel, email: "", address: "", arrival: "", note: "", inn_memo: memo, mail_guest: "none", mail_inn: "none", received_at: at,
         };
         for (let i = 0; i < 5; i++) {

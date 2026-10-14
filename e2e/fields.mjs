@@ -200,10 +200,12 @@ async function adminScreens(browser, ids) {
   {
     const S = "管理画面：電話・LINE の予約を足す";
     await go("/admin/new", "#addCard");
-    const sel = { checkin: ["#ci", "date"], nights: ["#ni", "select"], guests: ["#gu", "select"], name: ["#nm", "text"], tel: ["#tel", "text"], memo: ["#memo", "text"] };
+    // 金額の手入力（要件差分 第2版 2026-10-14）：入れ方はスイッチ（定価／手入力しか選べない。ほかの値は単体テストだけ）、合計金額は文字の欄
+    const sel = { checkin: ["#ci", "date"], nights: ["#ni", "select"], guests: ["#gu", "select"], name: ["#nm", "text"], tel: ["#tel", "text"], memo: ["#memo", "text"], priceMode: ["#pmode", "switch"], customPay: ["#cpay", "text"] };
     const opts = { nights: await options("#ni"), guests: await options("#gu") };
     for (const c of fieldCases("manual", site, ctx())) {
       const [css, kind] = sel[c.key];
+      if (kind === "switch" && !["", "list", "custom"].includes(String(c.value))) continue;
       if (!enterable(c, kind, opts[c.key])) continue;
       const blocker = c.expect ? null : c.key === "name" ? { key: "tel", msg: FORMS.manual.find((f) => f.key === "tel").msg } : { key: "name", msg: "お名前を入れてください" };
       await tryCase(S, c, {
@@ -217,6 +219,10 @@ async function adminScreens(browser, ids) {
           await page.fill("#nm", String(v.name));
           await page.fill("#tel", String(v.tel));
           await page.fill("#memo", String(v.memo));
+          if (v.priceMode === "custom") {
+            await page.check("#pmode");
+            await page.fill("#cpay", String(v.customPay ?? ""));
+          }
         },
         submit: () => page.click("#add"),
       });

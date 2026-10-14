@@ -37,6 +37,9 @@ export function makeFields() {
     month: { key: "month", label: "月", kind: "month", required: true, msg: "月の形が正しくありません" },
     // 管理画面の「設定」：画面の色（朱・緑・青。基本設計書 追補 2026-10-13 S-03）。並びは src/theme.js の THEME_KEYS と同じ
     theme: { key: "theme", label: "画面の色", kind: "pick", required: true, options: function () { return ["shu", "green", "blue"]; }, msg: "色を選んでください" },
+    // 管理画面：金額の手入力（電話・LINE の予約だけ。要件差分 第2版 2026-10-14）。空は定価。合計金額は手入力のときだけ見る。上限は Claude案（基本設計書 6節）
+    priceMode: { key: "priceMode", label: "金額の入れ方", kind: "priceMode", msg: "金額の入れ方が正しくありません" },
+    customPay: { key: "customPay", label: "合計金額", kind: "pay", lo: 0, hi: 9999999, empty: "合計金額を入れてください", msg: "合計金額は 0〜9,999,999円の整数で入れてください" },
   };
   function withReq(f, required) { var o = {}; for (var k in f) o[k] = f[k]; o.required = required; return o; }
 
@@ -46,9 +49,11 @@ export function makeFields() {
     quote: [F.checkinWeb, F.nights, F.guestsWeb],
     book: [F.checkinWeb, F.nights, F.guestsWeb, F.name, F.tel, F.email, F.address, F.arrival, F.note, F.agree, F.privacyAgree],
     // 管理画面：電話・LINE の予約を足す（/manual）
-    manual: [F.checkinAdmin, F.nights, F.guests, F.name, withReq(F.tel, false), F.memo],
-    // 管理画面：日付・人数の変更（/change）と料金の下見（/quote）
+    manual: [F.checkinAdmin, F.nights, F.guests, F.name, withReq(F.tel, false), F.memo, F.priceMode, F.customPay],
+    // 管理画面：料金の下見（/quote）
     stay: [F.checkinAdmin, F.nights, F.guests],
+    // 管理画面：日付・人数・金額の変更（/change）
+    change: [F.checkinAdmin, F.nights, F.guests, F.priceMode, F.customPay],
     // 管理画面：お客様の情報を直す（/info）。電話・メール・ご住所は、予約画面からの予約だけ必須
     info: [F.name, withReq(F.tel, "web"), withReq(F.email, "web"), withReq(F.address, "web"), F.arrival, F.note],
     memo: [F.memo],
@@ -167,6 +172,17 @@ export function makeFields() {
         // 件数は「受付件数の上限を決める」「この日は受ける」のときだけ。「この日は受ける」の空は、上限なし（既定の件数）
         if (got.action !== "limit" && got.action !== "open") return { v: null };
         if (isEmpty(raw)) return got.action === "limit" ? { e: f.empty } : { v: null };
+        n = num(raw);
+        return Number.isInteger(n) && n >= f.lo && n <= f.hi ? { v: n } : { e: f.msg };
+      case "priceMode":
+        // 空は定価
+        v = clean(raw);
+        if (!v) return { v: "list" };
+        return v === "list" || v === "custom" ? { v: v } : { e: f.msg };
+      case "pay":
+        // 合計金額は手入力のときだけ見る。定価のときは使わない（null）
+        if (got.priceMode !== "custom") return { v: null };
+        if (isEmpty(raw)) return { e: f.empty };
         n = num(raw);
         return Number.isInteger(n) && n >= f.lo && n <= f.hi ? { v: n } : { e: f.msg };
       case "bool":

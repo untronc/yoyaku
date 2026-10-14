@@ -18,6 +18,7 @@ export function baseInput(form, site, ctx) {
     book: { checkin: plus(t, 19), nights: 2, guests: 3, ...guest, agree: true, privacyAgree: true },
     manual: { checkin: plus(t, 24), nights: 1, guests: 2, name: "佐藤 一郎", tel: "", memo: "" },
     stay: { checkin: plus(t, 24), nights: 1, guests: 2 },
+    change: { checkin: plus(t, 24), nights: 1, guests: 2, priceMode: "list" },
     info: guest,
     memo: { memo: "布団を1組多めに" },
     me: { name: "運用者 二号" },
@@ -169,6 +170,25 @@ function periodCases(f, site, ctx) {
     ["形の違い（/）", t.replace(/-/g, "/"), m],
   ];
 }
+// 金額の入れ方（要件差分 第2版 2026-10-14）：空は定価
+function priceModeCases(f) {
+  return [["空（定価）", "", null], ["定価", "list", null], ["手入力", "custom", null, { customPay: 8000 }], ["知らない値", "free", f.msg], ["大文字", "CUSTOM", f.msg]];
+}
+// 合計金額：手入力のときだけ見る
+function payCases(f) {
+  const c = { priceMode: "custom" };
+  return [
+    ["手入力：空", "", f.empty, c],
+    [`最小（${f.lo}円）`, f.lo, null, c],
+    [`最大（${f.hi}円）`, f.hi, null, c],
+    [`最大＋1（${f.hi + 1}円）`, f.hi + 1, f.msg, c],
+    ["最小－1", f.lo - 1, f.msg, c],
+    ["小数", 1.5, f.msg, c],
+    ["文字", "あ", f.msg, c],
+    ["数字の文字", "8000", null, c],
+    ["定価のときは見ない", "あ", null, { priceMode: "list" }],
+  ];
+}
 function countCases(f) {
   return [
     ["上限を決める：空", "", f.empty, { action: "limit" }],
@@ -191,7 +211,7 @@ function monthCases(f, site, ctx) {
   return [["1月", `${y}-01`, null], ["12月", `${y}-12`, null], ["13月", `${y}-13`, f.msg], ["0月", `${y}-00`, f.msg], ["1桁の月", `${y}-1`, f.msg], ["空", "", f.msg]];
 }
 
-const BY_KIND = { text: textCases, tel: telCases, email: emailCases, choice: choiceCases, pick: pickCases, int: intCases, date: dateCases, bool: boolCases, from: periodCases, to: periodCases, count: countCases, flag: flagCases, month: monthCases };
+const BY_KIND = { text: textCases, tel: telCases, email: emailCases, choice: choiceCases, pick: pickCases, int: intCases, date: dateCases, bool: boolCases, from: periodCases, to: periodCases, count: countCases, priceMode: priceModeCases, pay: payCases, flag: flagCases, month: monthCases };
 
 /**
  * フォームの試験の値の一覧

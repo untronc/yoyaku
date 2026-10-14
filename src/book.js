@@ -152,7 +152,7 @@ export async function book(site, env, raw, now = new Date()) {
 export const adminLink = (site, id) => site.adminUrl.replace(/\/$/, "") + "/b/" + encodeURIComponent(id);
 
 /** 変更履歴に入れる値（氏名・連絡先・メモの中身は入れない） */
-export const stayFields = (b) => ({ checkin: b.checkin, checkout: b.checkout, nights: b.nights, guests: b.guests, total: b.total, discount: b.discount, pay: b.pay, status: b.status });
+export const stayFields = (b) => ({ checkin: b.checkin, checkout: b.checkout, nights: b.nights, guests: b.guests, total: b.total, discount: b.discount, pay: b.pay, status: b.status, price_mode: b.price_mode ?? "list" });
 
 /** 入れられなかった理由を返す（リリース1と同じく、1日の受付件数を先に見る） */
 async function refused(site, db, day, marks) {

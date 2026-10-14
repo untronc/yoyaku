@@ -228,11 +228,23 @@ const SCRIPT = String.raw`
   }
 
   // ----- 予約の詳細 -----
-  var KIND = { create: '作成', cancel: 'キャンセル', change: '日付・人数の変更', memo: 'メモを変更', info: 'お客様の情報を直す' };
-  var KICON = { create: 'plus-lg', cancel: 'x-lg', change: 'arrow-left-right', memo: 'journal-text', info: 'pencil-fill' };
+  var KIND = { create: '作成', cancel: 'キャンセル', change: '日付・人数の変更', price: '金額の変更', memo: 'メモを変更', info: 'お客様の情報を直す' };
+  var KICON = { create: 'plus-lg', cancel: 'x-lg', change: 'arrow-left-right', price: 'cash-coin', memo: 'journal-text', info: 'pencil-fill' };
   var FIELD = { name: 'お名前', tel: '電話', email: 'メール', address: 'ご住所', arrival: '到着予定', note: 'ご要望' };
   function infoText(x) { if (!x.before) return '（3年たったので値は消去済み）'; return Object.keys(x.after).map(function (k) { return (FIELD[k] || k) + '：' + (x.before[k] || '（空）') + ' → ' + (x.after[k] || '（空）'); }).join('\n'); }
-  function stayText(s) { return s ? s.checkin + '〜' + s.checkout + '（' + s.nights + '泊）' + s.guests + '名・' + yen(s.pay) : ''; }
+  function stayText(s) { return s ? s.checkin + '〜' + s.checkout + '（' + s.nights + '泊）' + s.guests + '名・' + (s.price_mode === 'custom' ? '手入力 ' : '') + yen(s.pay) : ''; }
+  function payText(s) { return s ? (s.price_mode === 'custom' ? '手入力 ' : '定価 ') + yen(s.pay) : ''; }
+  // ----- 金額の手入力（電話・LINE の予約だけ。要件差分 第2版 2026-10-14）：スイッチと合計金額の欄 -----
+  function payBox(on, v) {
+    return '<div class="mb-3"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" role="switch" id="pmode"' + (on ? ' checked' : '') + '><label class="form-check-label" for="pmode">金額を手入力にする</label></div>' +
+      '<div id="pbox" class="mt-2"' + (on ? '' : ' hidden') + '><label class="form-label" for="cpay">合計金額（円）<span class="req">必須</span></label><input class="form-control" id="cpay" data-fk="customPay" inputmode="numeric" value="' + e(v) + '">' +
+      '<div class="form-text">人数・泊数をすべて含めた、この予約の合計です。0円も入れられます。連泊割引は掛かりません。日付・人数を変えても合計はそのままです。</div>' + errBox('customPay') + '</div>' + errBox('priceMode') + '</div>';
+  }
+  function payMode() { var p = document.getElementById('pmode'); return p && p.checked ? 'custom' : 'list'; }
+  // 下見の応答は、いちばん新しい問い合わせの分だけ出す。手入力の合計は応答が来たときの欄の値（打つ途中の古い応答で表示が戻らないように。コードレビュー 2026-10-15）
+  var quoteSeq = 0;
+  function payNow() { return payMode() === 'custom' ? val('cpay') : null; }
+  function payInput(body) { body.priceMode = payMode(); body.customPay = body.priceMode === 'custom' ? val('cpay') : ''; return body; }
   function mailText(v) {
     if (v === 'sent') return '<span class="badge text-bg-success">' + bi('check-lg') + ' 送信済み</span>';
     if (/^skipped: /.test(v || '')) return '送っていない（' + e(v.slice(9)) + '）';
@@ -254,7 +266,9 @@ const SCRIPT = String.raw`
         liRow('到着予定', dash(b.arrival)), liRow('ご要望', dash(b.note))
       ]));
       h += cardBs('cash-coin', 'お支払い', '<ul class="list-group list-group-flush"><li class="list-group-item bs-price">' +
-        '<div class="bs-row"><span>' + yen(b.per_person) + ' × ' + e(b.guests) + '名 × ' + e(b.nights) + '泊</span><span>' + yen(b.total) + '</span></div>' +
+        (b.price_mode === 'custom'
+          ? '<div class="bs-row"><span><span class="badge text-bg-warning" data-pmode="custom">' + bi('pencil-square') + ' 手入力</span> ' + e(b.guests) + '名 × ' + e(b.nights) + '泊の合計</span><span>' + yen(b.total) + '</span></div>'
+          : '<div class="bs-row"><span>' + yen(b.per_person) + ' × ' + e(b.guests) + '名 × ' + e(b.nights) + '泊</span><span>' + yen(b.total) + '</span></div>') +
         (b.discount ? '<div class="bs-row"><span>連泊割引</span><span>−' + yen(b.discount) + '</span></div>' : '') +
         '<hr class="my-2"><div class="d-flex justify-content-between align-items-baseline gap-2"><span class="fw-bold">お支払い</span><span class="bs-total">' + yen(b.pay) + '</span></div></li></ul>');
       h += cardBs('envelope', 'メール', b.source === 'web'
@@ -277,15 +291,16 @@ const SCRIPT = String.raw`
         field('memo', 'memo', '宿のメモ', false, '<textarea class="form-control" id="memo" data-fk="memo" style="min-height:90px">' + e(b.inn_memo) + '</textarea>', maxText('memo', 'memo')) +
         '<button class="btn btn-outline-primary" id="saveMemo">' + bi('save') + ' メモを保存</button> <span id="memoMsg" class="text-secondary small"></span></div></div>';
       if (live) {
-        h += '<h2>日付・人数を変える</h2><div class="card mb-3 shadow-sm"><div class="card-body" id="chCard"><div class="row g-2">' +
+        h += '<h2>' + (b.source === 'manual' ? '日付・人数・金額を変える' : '日付・人数を変える') + '</h2><div class="card mb-3 shadow-sm"><div class="card-body" id="chCard"><div class="row g-2">' +
           '<div class="col-12 col-sm-6"><label class="form-label" for="ci">チェックイン</label><input type="date" class="form-control" id="ci" data-fk="checkin" value="' + e(b.checkin) + '">' + errBox('checkin') + '</div>' +
           '<div class="col-6 col-sm-3"><label class="form-label" for="ni">泊数</label>' + sel('ni', 'nights', 1, INFO.maxNights, b.nights, '泊') + errBox('nights') + '</div>' +
           '<div class="col-6 col-sm-3"><label class="form-label" for="gu">人数</label>' + sel('gu', 'guests', 1, INFO.maxGuests, b.guests, '名') + errBox('guests') + '</div></div>' +
+          (b.source === 'manual' ? '<div class="mt-3">' + payBox(b.price_mode === 'custom', b.price_mode === 'custom' ? b.pay : '') + '</div>' : '') +
           '<div id="chq" class="mt-3"></div><button class="btn btn-primary" id="doChange">この内容に変える</button></div></div>';
         h += '<h2>キャンセル</h2><div class="card border-danger mb-3"><div class="card-body"><p class="text-secondary small">キャンセルすると、空きがすぐ戻ります。お客様へのメールは送りません。キャンセルは取り消せません。</p><button class="btn btn-outline-danger" id="doCancel" data-bs-toggle="modal" data-bs-target="#cancelModal">' + bi('x-circle') + ' キャンセルにする</button></div></div>';
       }
       h += cardBs('clock-history', '変更履歴<span class="fw-normal small text-secondary ms-2">新しい順</span>', '<ol class="timeline">' + j.history.slice().reverse().map(function (x) {
-        var detail = x.kind === 'change' ? stayText(x.before) + '\n→ ' + stayText(x.after) : x.kind === 'create' ? stayText(x.after) : x.kind === 'info' ? infoText(x) : '';
+        var detail = x.kind === 'change' ? stayText(x.before) + '\n→ ' + stayText(x.after) : x.kind === 'price' ? payText(x.before) + ' → ' + payText(x.after) : x.kind === 'create' ? stayText(x.after) : x.kind === 'info' ? infoText(x) : '';
         return '<li class="tl-item"><span class="tl-dot">' + bi(KICON[x.kind] || 'circle') + '</span><div class="tl-body"><div class="d-flex flex-wrap justify-content-between gap-1"><b>' + e(KIND[x.kind] || x.kind) + '</b><time class="small text-secondary">' + when(x.at) + '</time></div><div class="small text-secondary">' + bi('person') + ' ' + e(x.by) + '</div>' + (detail ? '<div class="tl-detail">' + e(detail) + '</div>' : '') + '</div></li>';
       }).join('') + '</ol>', ' id="history"');
       M.innerHTML = h;
@@ -309,13 +324,16 @@ const SCRIPT = String.raw`
       var show = function () {
         var body = { id: b.id, checkin: val('ci'), nights: +val('ni'), guests: +val('gu') };
         if (!checkForm(chBox, 'stay', body)) { document.getElementById('chq').innerHTML = ''; return; }
-        api('/quote', body).then(function (q) { document.getElementById('chq').innerHTML = quoteHtml('変更後：', body.checkin, q, '変える'); })
+        var my = ++quoteSeq;
+        api('/quote', body).then(function (q) { if (my === quoteSeq) document.getElementById('chq').innerHTML = quoteHtml('変更後：', body.checkin, q, '変える', payNow()); })
           .catch(function (x) { fail(chBox, function (y) { document.getElementById('chq').innerHTML = err(y); }, x); });
       };
       ['ci', 'ni', 'gu'].forEach(function (k) { document.getElementById(k).onchange = show; });
+      if (b.source === 'manual') wirePay(show);
       document.getElementById('doChange').onclick = function () {
         var body = { id: b.id, checkin: val('ci'), nights: +val('ni'), guests: +val('gu') };
-        if (!checkForm(chBox, 'stay', body)) return;
+        if (b.source === 'manual') payInput(body);
+        if (!checkForm(chBox, b.source === 'manual' ? 'change' : 'stay', body)) return;
         this.disabled = true;
         api('/change', body).then(function () { booking(b.id); }).catch(function (x) { fail(chBox, function (y) { document.getElementById('chq').innerHTML = err(y); }, x); document.getElementById('doChange').disabled = false; });
       };
@@ -329,16 +347,25 @@ const SCRIPT = String.raw`
   }
   function hideModal() { var el = document.getElementById('cancelModal'); if (window.bootstrap) bootstrap.Modal.getOrCreateInstance(el).hide(); }
   // 日付・人数を変える／足す の下に出す、変更後の日程と金額（満室・停止の日が入っていれば注意）
-  function quoteHtml(label, checkin, q, verb) {
-    return '<div class="alert alert-success py-2">' + bi('calendar-check') + ' ' + label + e(checkin) + '〜' + e(q.checkout) + '・' + yen(q.price.pay) + (q.price.discount ? '（連泊割引 −' + yen(q.price.discount) + '）' : '') + '</div>' +
+  function quoteHtml(label, checkin, q, verb, custom) {
+    var c = custom == null ? NaN : Number(String(custom).trim() === '' ? NaN : custom);
+    var money = custom == null ? yen(q.price.pay) + (q.price.discount ? '（連泊割引 −' + yen(q.price.discount) + '）' : '')
+      : '<span class="text-secondary text-decoration-line-through" data-list-price>定価 ' + yen(q.price.pay) + '</span> ' + (Number.isInteger(c) && c >= 0 ? '手入力 ' + yen(c) : '手入力（合計を入れてください）');
+    return '<div class="alert alert-success py-2">' + bi('calendar-check') + ' ' + label + e(checkin) + '〜' + e(q.checkout) + '・' + money + '</div>' +
       (q.full.length ? '<div class="alert alert-warning py-2">' + bi('exclamation-triangle-fill') + ' 満室・受付停止の日が入っています（' + q.full.map(e).join('、') + '）。このまま' + verb + 'こともできます。</div>' : '');
+  }
+
+  // スイッチを切り替えたら欄を出し入れし、下見を出し直す
+  function wirePay(show) {
+    document.getElementById('pmode').onchange = function () { document.getElementById('pbox').hidden = !this.checked; show(); };
+    document.getElementById('cpay').oninput = show;
   }
 
   // ----- 電話・LINE の予約を足す -----
   function addForm(d) {
     var h = crumbs([['月の表', '/admin'], ['予約を足す', '']]) + '<h1>電話・LINE の予約を足す</h1><div class="card shadow-sm mb-3"><div class="card-body" id="addCard">' +
       field('checkin', 'ci', 'チェックイン', true, '<input type="date" class="form-control" id="ci" data-fk="checkin" value="' + e(d || today()) + '">', 'お泊まりの最初の夜です。') +
-      '<div class="row g-2"><div class="col-6">' + field('nights', 'ni', '泊数', true, sel('ni', 'nights', 1, INFO.maxNights, 1, '泊')) + '</div><div class="col-6">' + field('guests', 'gu', '人数', true, sel('gu', 'guests', 1, INFO.maxGuests, 1, '名')) + '</div></div>' +
+      '<div class="row g-2"><div class="col-6">' + field('nights', 'ni', '泊数', true, sel('ni', 'nights', 1, INFO.maxNights, 1, '泊')) + '</div><div class="col-6">' + field('guests', 'gu', '人数', true, sel('gu', 'guests', 1, INFO.maxGuests, 1, '名')) + '</div></div>' + payBox(false, '') +
       field('name', 'nm', 'お名前', true, input('name', 'nm', '', 'autocomplete="off"'), '予約台帳に出す名前です。') +
       field('tel', 'tel', '電話', false, input('tel', 'tel', '', 'inputmode="tel" autocomplete="off"')) +
       field('memo', 'memo', '宿のメモ', false, '<textarea class="form-control" id="memo" data-fk="memo" style="min-height:90px"></textarea>', 'お客様には見えません。' + maxText('manual', 'memo') + '。') +
@@ -348,13 +375,15 @@ const SCRIPT = String.raw`
     var show = function () {
       var body = { checkin: val('ci'), nights: +val('ni'), guests: +val('gu') };
       if (!checkForm(box, 'stay', body)) { document.getElementById('q').innerHTML = ''; return; }
-      api('/quote', body).then(function (q) { document.getElementById('q').innerHTML = quoteHtml('', val('ci'), q, '登録する'); })
+      var my = ++quoteSeq;
+      api('/quote', body).then(function (q) { if (my === quoteSeq) document.getElementById('q').innerHTML = quoteHtml('', val('ci'), q, '登録する', payNow()); })
         .catch(function (x) { fail(box, function (y) { document.getElementById('q').innerHTML = err(y); }, x); });
     };
     ['ci', 'ni', 'gu'].forEach(function (k) { document.getElementById(k).onchange = show; });
+    wirePay(show);
     show();
     document.getElementById('add').onclick = function () {
-      var body = { checkin: val('ci'), nights: +val('ni'), guests: +val('gu'), name: val('nm'), tel: val('tel'), memo: val('memo') };
+      var body = payInput({ checkin: val('ci'), nights: +val('ni'), guests: +val('gu'), name: val('nm'), tel: val('tel'), memo: val('memo') });
       if (!checkForm(box, 'manual', body)) return;
       this.disabled = true;
       api('/manual', body)

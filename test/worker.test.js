@@ -420,3 +420,106 @@ describe("見た目の設定（基本設計書 追補 2026-10-13 S-03）と予�
     expect(html).not.toMatch(/cdn\.|jsdelivr|unpkg/);
   });
 });
+
+describe("金額の手入力（要件差分 第2版 2026-10-14・基本設計書 金額の手入力）", () => {
+  const row = (id) => env.DB.prepare("SELECT * FROM bookings WHERE id = ?").bind(id).first();
+  const manual = (c, over = {}) => adminPost(c, "/manual", { checkin: "2027-02-01", nights: 1, guests: 2, name: "常連", ...over });
+
+  it("[HA-1・H-2・H-4] 電話・LINE の予約を手入力の合計 8,000円で登録すると、お支払いが 8,000円（割引なし）。料金表の 1名1泊 は残す", async () => {
+    const c = await login();
+    const r = await (await manual(c, { priceMode: "custom", customPay: 8000 })).json();
+    expect(r.ok).toBe(true);
+    expect(await row(r.id)).toMatchObject({ price_mode: "custom", per_person: 5000, total: 8000, discount: 0, pay: 8000 });
+  });
+
+  it("[HA-2・HA-3・H-3・H-5] 合計 0円・1名・1泊も登録でき、空きを1つ使い、月ごとの数字の電話・LINE に人数1・金額0で入る。8,000円の予約はその月に 8,000円で入る", async () => {
+    const c = await login();
+    const z = await (await manual(c, { guests: 1, priceMode: "custom", customPay: 0 })).json();
+    expect(z.ok).toBe(true);
+    expect(await row(z.id)).toMatchObject({ price_mode: "custom", pay: 0 });
+    expect((await (await adminGet(c, "/month?m=2027-02")).json()).days["2027-02-01"]).toMatchObject({ count: 1, guests: 1 });
+    await manual(c, { checkin: "2027-02-05", priceMode: "custom", customPay: 8000 });
+    const s = (await (await adminGet(c, "/stats")).json()).months.find((m) => m.month === "2027-02");
+    expect(s.manual).toEqual({ count: 2, guests: 3, nights: 2, pay: 8000 });
+  });
+
+  it("[HA-4・H-1] 予約画面からの予約は手入力にできない（400・何も変わらない）", async () => {
+    const c = await login();
+    const no = await webBooking();
+    const before = await row(no);
+    const res = await adminPost(c, "/change", { id: no, checkin: before.checkin, nights: before.nights, guests: before.guests, priceMode: "custom", customPay: 3000 });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("予約画面からの予約は、金額を手入力にできません");
+    expect(await row(no)).toMatchObject({ price_mode: "list", pay: before.pay, updated_at: before.updated_at });
+  });
+
+  it("[HA-5・H-6] 手入力 12,000円の予約を 1泊→3泊・2名→3名に変えても、割引なしで 12,000円のまま。合計を打ち直すとその金額", async () => {
+    const c = await login();
+    const r = await (await manual(c, { priceMode: "custom", customPay: 12000 })).json();
+    expect((await adminPost(c, "/change", { id: r.id, checkin: "2027-02-01", nights: 3, guests: 3, priceMode: "custom", customPay: 12000 })).status).toBe(200);
+    expect(await row(r.id)).toMatchObject({ nights: 3, guests: 3, price_mode: "custom", total: 12000, discount: 0, pay: 12000 });
+    expect((await adminPost(c, "/change", { id: r.id, checkin: "2027-02-01", nights: 3, guests: 3, priceMode: "custom", customPay: 20000 })).status).toBe(200);
+    expect(await row(r.id)).toMatchObject({ pay: 20000, total: 20000, discount: 0 });
+  });
+
+  it("[HA-6・H-5] 金額だけを変えると変更履歴は「金額の変更」で、だれが・いつ・前後の合計と入れ方が残る。日付と一緒なら「日付・人数の変更」に入れ方も入る", async () => {
+    const c = await login();
+    const r = await (await manual(c)).json();
+    expect((await adminPost(c, "/change", { id: r.id, checkin: "2027-02-01", nights: 1, guests: 2, priceMode: "custom", customPay: 8000 })).status).toBe(200);
+    await adminPost(c, "/change", { id: r.id, checkin: "2027-02-02", nights: 1, guests: 2, priceMode: "custom", customPay: 8000 });
+    const h = (await (await adminGet(c, "/booking?id=" + r.id)).json()).history;
+    expect(h[0].after).toMatchObject({ price_mode: "list", pay: 10000 });
+    expect(h[1]).toMatchObject({ kind: "price", by: "運用者", at: NOW.toISOString(), before: { price_mode: "list", pay: 10000 }, after: { price_mode: "custom", pay: 8000 } });
+    expect(h[2]).toMatchObject({ kind: "change", before: { checkin: "2027-02-01", price_mode: "custom" }, after: { checkin: "2027-02-02", price_mode: "custom", pay: 8000 } });
+  });
+
+  it("[HA-7・H-7] 手入力を解除すると、予約したときの料金表で計算し直す（3泊なら連泊割引あり）", async () => {
+    const c = await login();
+    const r = await (await manual(c, { nights: 3, priceMode: "custom", customPay: 4000 })).json();
+    const w2 = createWorker(siteWith({ price: { current: "r2", tables: { ...site.price.tables, r2: { tiers: [{ min: 1, max: 999, price: 9999 }], longStay: [] } } } }), { now: () => NOW });
+    const res = await call("/admin/api/change", { method: "POST", headers: { Cookie: c, "X-Ybk": "1", "Content-Type": "application/json" }, body: JSON.stringify({ id: r.id, checkin: "2027-02-01", nights: 3, guests: 2, priceMode: "list" }) }, w2);
+    expect(res.status).toBe(200);
+    expect(await row(r.id)).toMatchObject({ price_mode: "list", per_person: 5000, total: 30000, discount: 3000, pay: 27000 });
+  });
+
+  it("[HA-8] 金額の入れ方を送らなければ定価（いままでと同じ金額）", async () => {
+    const c = await login();
+    const r = await (await manual(c, { nights: 3 })).json();
+    expect(await row(r.id)).toMatchObject({ price_mode: "list", total: 30000, discount: 3000, pay: 27000 });
+    const no = await webBooking();
+    expect((await row(no)).price_mode).toBe("list");
+  });
+
+  it("合計金額の入力チェック：手入力で空・負・小数・10,000,000・文字は断り、0 と 9,999,999 は通る。入れ方が list・custom 以外も断る", async () => {
+    const c = await login();
+    for (const bad of ["", null, -1, 1.5, 10000000, "abc"]) {
+      const res = await manual(c, { priceMode: "custom", customPay: bad });
+      expect(res.status).toBe(400);
+      expect(Object.keys((await res.json()).errors)).toEqual(["customPay"]);
+    }
+    for (const ok of [0, 9999999, "8000"]) expect((await manual(c, { priceMode: "custom", customPay: ok })).status).toBe(200);
+    const res = await manual(c, { priceMode: "free" });
+    expect(res.status).toBe(400);
+    expect((await res.json()).errors).toEqual({ priceMode: "金額の入れ方が正しくありません" });
+    // 定価のときの合計金額は見ない（保存もしない）
+    const r = await (await manual(c, { priceMode: "list", customPay: "abc" })).json();
+    expect(await row(r.id)).toMatchObject({ price_mode: "list", pay: 10000 });
+  });
+
+  it("[H-6] 手入力の予約に、金額の入れ方を送らない変更（前の版の画面）が来ても、定価に戻さず合計のまま（qa 2026-10-15）", async () => {
+    const c = await login();
+    const r = await (await manual(c, { priceMode: "custom", customPay: 12000 })).json();
+    expect((await adminPost(c, "/change", { id: r.id, checkin: "2027-02-01", nights: 3, guests: 3 })).status).toBe(200);
+    expect(await row(r.id)).toMatchObject({ nights: 3, guests: 3, price_mode: "custom", total: 12000, discount: 0, pay: 12000 });
+    // 空白だけの入れ方も「送らない」と同じ（コードレビュー 2026-10-15）
+    expect((await adminPost(c, "/change", { id: r.id, checkin: "2027-02-01", nights: 2, guests: 3, priceMode: "  " })).status).toBe(200);
+    expect(await row(r.id)).toMatchObject({ nights: 2, price_mode: "custom", pay: 12000 });
+  });
+
+  it("変わったところが無ければ断る（手入力の合計も同じとき）", async () => {
+    const c = await login();
+    const r = await (await manual(c, { priceMode: "custom", customPay: 8000 })).json();
+    const res = await adminPost(c, "/change", { id: r.id, checkin: "2027-02-01", nights: 1, guests: 2, priceMode: "custom", customPay: 8000 });
+    expect(res.status).toBe(400);
+  });
+});
