@@ -155,7 +155,7 @@ export function makeFields() {
           if (v < t) return { e: "過去の日は選べません" };
           if (site.bookingStart && v < site.bookingStart) return { e: "ネット予約の受付は " + site.bookingStart + " のチェックインからです" };
           if (v > addDays(t, site.bookingDaysAhead)) return { e: "受付期間の外です" };
-        } else if (v < t) return { e: "過去の日は選べません" };
+        } else if (v < t && !ctx.sameStay) return { e: "過去の日は選べません" };
         return { v: v };
       }
       case "from":
@@ -205,6 +205,9 @@ export function makeFields() {
     if (!fields) throw new Error("フォームがありません：" + form);
     input = input || {};
     ctx = ctx || {};
+    // 予約の日付・泊数・人数が今のまま（金額だけの変更）なら、チェックインが昨日以前でも通す（要件差分 第3版 業務の決まり 9）
+    var cur = ctx.current;
+    if (cur) ctx = Object.assign({}, ctx, { sameStay: clean(input.checkin) === cur.checkin && num(input.nights) === cur.nights && num(input.guests) === cur.guests });
     var value = {}, errors = {}, first = "";
     for (var i = 0; i < fields.length; i++) {
       var f = fields[i], r = check(f, input[f.key], site, ctx, value);

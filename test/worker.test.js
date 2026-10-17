@@ -523,3 +523,55 @@ describe("金額の手入力（要件差分 第2版 2026-10-14・基本設計書
     expect(res.status).toBe(400);
   });
 });
+
+describe("昨日以前の予約の金額（要件差分 第3版 2026-10-17 業務の決まり 9・受け入れ条件 9〜10）", () => {
+  const row = (id) => env.DB.prepare("SELECT * FROM bookings WHERE id = ?").bind(id).first();
+  // 2027-02-01 に入った予約を、2027-02-03 の今日から触る（1泊＝泊まり終わった・3泊＝滞在中）
+  const LATER = new Date("2027-02-03T03:00:00Z");
+  const later = createWorker(site, { now: () => LATER });
+  const post = (c, path, body) =>
+    call("/admin/api" + path, { method: "POST", headers: { Cookie: c, "Content-Type": "application/json", "X-Ybk": "1", Origin: "https://yoyaku.example.jp" }, body: JSON.stringify(body) }, later);
+  const manual = async (c, over = {}) => (await (await adminPost(c, "/manual", { checkin: "2027-02-01", nights: 1, guests: 2, name: "常連", ...over })).json()).id;
+
+  it("[受け入れ 9] 泊まり終わった予約・滞在中の予約で、手入力への切り替え・合計の打ち直し・定価への戻しができ、月ごとの数字と変更履歴に入る", async () => {
+    const c = await login();
+    for (const nights of [1, 3]) {
+      const id = await manual(c, { nights });
+      const same = { id, checkin: "2027-02-01", nights, guests: 2 };
+      const r1 = await post(c, "/change", { ...same, priceMode: "custom", customPay: 8000 });
+      expect(r1.status).toBe(200);
+      expect(await row(id)).toMatchObject({ price_mode: "custom", pay: 8000 });
+      expect((await post(c, "/change", { ...same, priceMode: "custom", customPay: 9000 })).status).toBe(200);
+      expect((await post(c, "/change", { ...same, priceMode: "list" })).status).toBe(200);
+      expect((await row(id)).price_mode).toBe("list");
+      const h = (await (await adminGet(c, "/booking?id=" + id)).json()).history;
+      expect(h.slice(1).map((x) => x.kind)).toEqual(["price", "price", "price"]);
+      expect(h[1]).toMatchObject({ before: { price_mode: "list" }, after: { price_mode: "custom", pay: 8000 } });
+    }
+    const id = await manual(c, { checkin: "2027-02-02" });
+    await post(c, "/change", { id, checkin: "2027-02-02", nights: 1, guests: 2, priceMode: "custom", customPay: 7000 });
+    const s = (await (await adminGet(c, "/stats")).json()).months.find((m) => m.month === "2027-02");
+    expect(s.manual.pay).toBe(10000 + 27000 + 7000);
+  });
+
+  it("[受け入れ 9] 金額だけの下見（/quote）も、昨日以前の予約で「過去の日は選べません」を出さない", async () => {
+    const c = await login();
+    const id = await manual(c);
+    expect((await post(c, "/quote", { id, checkin: "2027-02-01", nights: 1, guests: 2 })).status).toBe(200);
+  });
+
+  it("[受け入れ 10] 昨日以前の予約の日付・泊数・人数の変更は、いまのまま断る（何も変わらない）", async () => {
+    const c = await login();
+    const id = await manual(c);
+    const before = await row(id);
+    for (const ch of [{ checkin: "2027-01-31" }, { nights: 2 }, { guests: 3 }]) {
+      const res = await post(c, "/change", { id, checkin: "2027-02-01", nights: 1, guests: 2, priceMode: "custom", customPay: 8000, ...ch });
+      expect(res.status).toBe(400);
+      expect((await res.json()).errors).toMatchObject({ checkin: "過去の日は選べません" });
+      expect((await post(c, "/quote", { id, checkin: "2027-02-01", nights: 1, guests: 2, ...ch })).status).toBe(400);
+    }
+    expect(await row(id)).toMatchObject({ pay: before.pay, updated_at: before.updated_at });
+    // 予約番号の無い下見（新しい登録）も、いまのまま昨日以前の日を断る
+    expect((await post(c, "/quote", { checkin: "2027-02-01", nights: 1, guests: 2 })).status).toBe(400);
+  });
+});

@@ -321,9 +321,11 @@ const SCRIPT = String.raw`
       if (!live) return;
       document.getElementById('cancelName').textContent = name + ' 様（' + b.id + '）　' + jp(b.checkin) + '〜' + jp(b.checkout);
       var chBox = document.getElementById('chCard');
+      // 日付・泊数・人数がそのまま（金額だけの変更）なら、チェックインが昨日以前でも通す（要件差分 第3版 業務の決まり 9）
+      var cur = { current: { checkin: b.checkin, nights: b.nights, guests: b.guests } };
       var show = function () {
         var body = { id: b.id, checkin: val('ci'), nights: +val('ni'), guests: +val('gu') };
-        if (!checkForm(chBox, 'stay', body)) { document.getElementById('chq').innerHTML = ''; return; }
+        if (!checkForm(chBox, 'stay', body, cur)) { document.getElementById('chq').innerHTML = ''; return; }
         var my = ++quoteSeq;
         api('/quote', body).then(function (q) { if (my === quoteSeq) document.getElementById('chq').innerHTML = quoteHtml('変更後：', body.checkin, q, '変える', payNow()); })
           .catch(function (x) { fail(chBox, function (y) { document.getElementById('chq').innerHTML = err(y); }, x); });
@@ -333,7 +335,7 @@ const SCRIPT = String.raw`
       document.getElementById('doChange').onclick = function () {
         var body = { id: b.id, checkin: val('ci'), nights: +val('ni'), guests: +val('gu') };
         if (b.source === 'manual') payInput(body);
-        if (!checkForm(chBox, b.source === 'manual' ? 'change' : 'stay', body)) return;
+        if (!checkForm(chBox, b.source === 'manual' ? 'change' : 'stay', body, cur)) return;
         this.disabled = true;
         api('/change', body).then(function () { booking(b.id); }).catch(function (x) { fail(chBox, function (y) { document.getElementById('chq').innerHTML = err(y); }, x); document.getElementById('doChange').disabled = false; });
       };
