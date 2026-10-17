@@ -588,6 +588,16 @@ describe("昨日以前の電話・LINE の予約（要件差分 第3版 2026-10-
     expect(months.find((m) => m.month === "2027-01").manual).toMatchObject({ count: 1, pay: 7000 });
   });
 
+  it("[受け入れ 11] 受付を始めた月より前（2026-09）の電話・LINE の予約も、月ごとの数字にその月が出て入る。予約の無い前の月は出さない", async () => {
+    const c = await login();
+    const res = await adminPost(c, "/manual", { checkin: "2026-09-20", nights: 1, guests: 2, name: "常連", priceMode: "custom", customPay: 7000 });
+    expect(res.status).toBe(200);
+    const months = (await (await adminGet(c, "/stats")).json()).months;
+    expect(months[0].month).toBe("2026-09");
+    expect(months.find((m) => m.month === "2026-09").manual).toMatchObject({ count: 1, pay: 7000 });
+    expect(months.map((m) => m.month)).not.toContain("2026-08");
+  });
+
   it("[受け入れ 12] 予約画面からの予約は、いまのまま：昨日以前の日への変更を断り、予約画面は明日以降しか受けない", async () => {
     const c = await login();
     const no = await webBooking();
@@ -601,5 +611,75 @@ describe("昨日以前の電話・LINE の予約（要件差分 第3版 2026-10-
       const r = await call("/api", { method: "POST", headers: { Origin: STUDIO, "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(bookBody({ checkin: d })) }, later);
       expect((await r.json()).ok).toBe(false);
     }
+  });
+});
+
+describe("ネット予約の流入元（要件差分 予約の流入元 2026-10-17・基本設計書 予約の流入元）", () => {
+  const row = (id) => env.DB.prepare("SELECT * FROM bookings WHERE id = ?").bind(id).first();
+  const web = async (src, over = {}) => {
+    const res = await call("/api", { method: "POST", headers: { Origin: STUDIO, "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(bookBody({ src, ...over })) });
+    return (await res.json()).no;
+  };
+  const SRC = { referrer: "www.google.com", utm_source: "test_a", utm_medium: "test_b", utm_campaign: "test_c", landing: "/camp-subsidy", prev: "/camp-sports" };
+
+  it("[受け入れ 1・F-R3] 予約画面から送った4つ（参照元・utm の3つ・ランディングページ・直前のページ）が予約に残る", async () => {
+    const no = await web(SRC);
+    expect(await row(no)).toMatchObject({ src_referrer: "www.google.com", src_utm_source: "test_a", src_utm_medium: "test_b", src_utm_campaign: "test_c", src_landing: "/camp-subsidy", src_prev: "/camp-sports" });
+  });
+
+  it("[受け入れ 3・2-3] 流入元が無い・一部だけ・壊れていても予約は受け、取れない項目は空（推測で埋めない）", async () => {
+    const a = await web(undefined);
+    expect(await row(a)).toMatchObject({ src_referrer: null, src_utm_source: null, src_landing: null, src_prev: null });
+    const b = await web({ landing: "/", referrer: "" }, { checkin: "2026-11-21", email: "b@example.com", tel: "090-1111-2222" });
+    expect(await row(b)).toMatchObject({ src_referrer: null, src_landing: "/" });
+    const c = await web("こわれた", { checkin: "2026-11-22", email: "c@example.com", tel: "090-3333-4444" });
+    expect(c).toBeTruthy();
+    expect((await row(c)).src_landing).toBeNull();
+  });
+
+  it("[3-4] サーバーで整える：パスは ? # 以降を落とす・/ で始まらないパスは空・参照元はドメインの形だけ（自分のサイトを除くのはサイト側のコード）・長さで切る・文字列でなければ空", async () => {
+    const no = await web({
+      referrer: "https://evil.example/x?q=1", utm_source: "a".repeat(150), utm_medium: 123, utm_campaign: " c\u0000d ",
+      landing: "/camp?email=hanako@example.com#top", prev: "https://example.com/x",
+    });
+    const r = await row(no);
+    expect(r).toMatchObject({ src_referrer: null, src_utm_medium: null, src_utm_campaign: "cd", src_landing: "/camp", src_prev: null });
+    expect(r.src_utm_source).toHaveLength(100);
+    const long = await web({ referrer: "Sub.Example-1.JP", landing: "/" + "p".repeat(400) }, { checkin: "2026-11-21", email: "d@example.com", tel: "090-5555-6666" });
+    expect((await row(long)).src_referrer).toBe("sub.example-1.jp");
+    expect((await row(long)).src_landing).toHaveLength(300);
+  });
+
+  it("[受け入れ 4・6] 詳しい画面の応答に4つが出る。電話・LINE の予約に送っても入らない", async () => {
+    const c = await login();
+    const no = await web(SRC);
+    expect((await (await adminGet(c, "/booking?id=" + no)).json()).booking).toMatchObject({ src_utm_source: "test_a", src_landing: "/camp-subsidy" });
+    const m = await (await adminPost(c, "/manual", { checkin: "2027-02-01", nights: 1, guests: 2, name: "常連", src: SRC })).json();
+    expect(await row(m.id)).toMatchObject({ src_referrer: null, src_utm_source: null, src_landing: null });
+  });
+
+  it("[受け入れ 5・F-R5] 月ごとの数字の流入元別：utm_source → 参照元 →（直接・不明）でまとめ、キャンセルと試しの予約は入れない", async () => {
+    const c = await login();
+    const a = await web(SRC);
+    await web({ referrer: "www.google.com" }, { checkin: "2026-11-21", email: "b@example.com", tel: "090-1111-2222" });
+    await web({ landing: "/" }, { checkin: "2026-11-22", email: "c@example.com", tel: "090-3333-4444" });
+    const x = await web(SRC, { checkin: "2026-11-23", email: "x@example.com", tel: "090-7777-8888" });
+    await web(SRC, { checkin: "2026-11-24", email: "t@example.com", tel: "090-9999-0000", name: "試験 太郎" });
+    await adminPost(c, "/cancel", { id: x });
+    const s = (await (await adminGet(c, "/stats")).json()).sources.filter((r) => r.month === "2026-11");
+    const p = (await row(a)).pay;
+    expect(s).toEqual(expect.arrayContaining([
+      { month: "2026-11", key: "test_a", count: 1, guests: 3, nights: 2, pay: p },
+      { month: "2026-11", key: "www.google.com", count: 1, guests: 3, nights: 2, pay: p },
+      { month: "2026-11", key: "（直接・不明）", count: 1, guests: 3, nights: 2, pay: p },
+    ]));
+    expect(s).toHaveLength(3);
+  });
+
+  it("[F-R6] 3年たった予約の個人情報を消すとき、流入元も消す", async () => {
+    const no = await web(SRC);
+    await env.DB.prepare("UPDATE bookings SET checkout = '2023-11-01' WHERE id = ?").bind(no).run();
+    await dailyCleanup(site, env, NOW);
+    expect(await row(no)).toMatchObject({ name: null, src_referrer: null, src_utm_source: null, src_utm_medium: null, src_utm_campaign: null, src_landing: null, src_prev: null });
   });
 });

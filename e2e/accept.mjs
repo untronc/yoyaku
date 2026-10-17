@@ -292,6 +292,32 @@ async function main() {
       must(Math.abs(s.box - s.inner) <= 4, `STEP 2 で枠の高さ ${s.box}・中身 ${s.inner}`);
       await outer.close();
     });
+    await check("流入元", "受け入れ 1・F-R1〜F-R3", "utm つきで /lp に入り、/lp2（読み直さずに移る）→ 予約の順に進んで予約すると、utm の3つ・ランディングページ /lp・直前のページ /lp2 が送られて予約に残る", async () => {
+      const outer = await ctx.newPage();
+      await outer.goto(EMBED + "lp?utm_source=test_a&utm_medium=test_b&utm_campaign=test_c");
+      await outer.evaluate(() => history.pushState({}, "", "/lp2"));
+      await outer.goto(EMBED + "framed");
+      const fr = outer.frameLocator("sandbox-iframe iframe");
+      await fr.locator(".ybk-cal button[data-day]:not([disabled])").first().waitFor({ timeout: 15000 });
+      await fr.locator(".ybk-cal button[data-day]:not([disabled])").last().click();
+      await fr.locator('[data-go="quote"]').click();
+      await fr.locator('.ybk-step[data-step="2"]:not([hidden])').waitFor({ timeout: 10000 });
+      await fr.locator('[data-f="name"]').fill("見本 流入");
+      await fr.locator('[data-f="tel"]').fill("090-2468-1357");
+      await fr.locator('[data-f="email"]').fill("source@example.com");
+      await fr.locator('[data-f="address"]').fill("東京都千代田区");
+      await fr.locator('[data-go="confirm"]').click();
+      await fr.locator('.ybk-step[data-step="3"]:not([hidden])').waitFor({ timeout: 10000 });
+      await fr.locator('[data-f="agree"]').check();
+      await fr.locator('[data-f="privacy"]').check();
+      const sent = outer.waitForRequest((r) => r.method() === "POST" && /\/api/.test(r.url()) && (r.postData() || "").includes('"book"'), { timeout: 15000 });
+      await fr.locator('[data-go="book"]').click();
+      const src = JSON.parse((await sent).postData()).src || {};
+      must(src.utm_source === "test_a" && src.utm_medium === "test_b" && src.utm_campaign === "test_c", `utm ${JSON.stringify(src)}`);
+      must(src.landing === "/lp" && src.prev === "/lp2" && src.referrer === "", `ページ ${JSON.stringify(src)}`);
+      await fr.locator('.ybk-step[data-step="4"]:not([hidden])').waitFor({ timeout: 20000 });
+      await outer.close();
+    });
     await check("配り方", "S-04", "前の埋め込み（web/embed.html を丸ごと貼る形）も、いまの Worker で空きと料金まで動く（本番の差し替えまでの間）", async () => {
       const old = await ctx.newPage();
       await old.goto(EMBED + "old");

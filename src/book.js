@@ -4,6 +4,7 @@ import { addDays, daysIn, jpDate, jstStamp, parseYmd, todayJst, ymd } from "./da
 import { sendMail } from "./mail.js";
 import { validOrThrow } from "./fields.js";
 import { limitOf, loadRules, price } from "./rules.js";
+import { sourceColumns } from "./source.js";
 
 /** 連絡先の印（SHA-256 の先頭8バイトを16進。リリース1の contactMark_ と同じ値） */
 export async function contactMark(kind, v) {
@@ -101,6 +102,8 @@ export async function book(site, env, raw, now = new Date()) {
     per_person: p.perPerson, total: p.total, discount: p.discount, pay: p.pay, price_version: site.price.current,
     name: b.name, tel, email: b.email, address: b.address, arrival: b.arrival || "", note: b.note || "", received_at: at,
     privacy_agreed_at: at, privacy_version: site.privacyVersion,
+    // 流入元（要件差分 予約の流入元 2026-10-17）。おかしな値はその項目を空にして、予約は受ける
+    ...sourceColumns(raw && raw.src),
   };
 
   // 全泊の空き・1日の受付件数（全体・同じ連絡先）を確かめながら入れる。予約番号がかぶったら（主キー）番号を変えてやり直す

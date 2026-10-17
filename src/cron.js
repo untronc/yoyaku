@@ -20,7 +20,7 @@ export async function dailyCleanup(site, env, now = new Date()) {
       "UPDATE booking_changes SET before_json = NULL, after_json = NULL, updated_at = ?, updated_by = 'system' WHERE kind = 'info' AND before_json IS NOT NULL AND booking_id IN (SELECT id FROM bookings WHERE checkout <= ? AND pii_deleted_at IS NULL)"
     ).bind(at, cutoff),
     db.prepare(
-      "UPDATE bookings SET name = NULL, tel = NULL, email = NULL, address = NULL, arrival = NULL, note = NULL, inn_memo = NULL, pii_deleted_at = ?, updated_at = ?, updated_by = 'system' WHERE checkout <= ? AND pii_deleted_at IS NULL"
+      "UPDATE bookings SET name = NULL, tel = NULL, email = NULL, address = NULL, arrival = NULL, note = NULL, inn_memo = NULL, src_referrer = NULL, src_utm_source = NULL, src_utm_medium = NULL, src_utm_campaign = NULL, src_landing = NULL, src_prev = NULL, pii_deleted_at = ?, updated_at = ?, updated_by = 'system' WHERE checkout <= ? AND pii_deleted_at IS NULL"
     ).bind(at, at, cutoff),
   ];
   stmts.push(db.prepare("DELETE FROM access_log WHERE received_at < ?").bind(new Date(now.getTime() - site.accessLogDays * 86400000).toISOString()));

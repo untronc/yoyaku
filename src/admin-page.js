@@ -174,11 +174,18 @@ const SCRIPT = String.raw`
         var pct = Math.round(x.total.pay / max * 100);
         return '<div class="d-flex align-items-center gap-2 mb-2"><span class="bar-label">' + label(x.month) + '</span><div class="progress flex-grow-1" role="progressbar" aria-label="' + label(x.month) + 'の金額" aria-valuenow="' + pct + '" aria-valuemin="0" aria-valuemax="100"><div class="progress-bar" style="width:' + pct + '%"></div></div><span class="fw-bold text-end" style="flex:0 0 6.2em;font-size:.8125rem">' + yen(x.total.pay) + '</span></div>';
       }).join('') + '</div>');
+      // 流入元別（決まり 4）：ネット予約だけ。utm_source → 参照元 →（直接・不明）でまとめる
+      var srcOf = function (mo) { return (j.sources || []).filter(function (r) { return r.month === mo; }); };
+      var srcTable = function (list) {
+        if (!list.length) return '';
+        return '<div class="table-responsive border-top" data-sources><table class="table table-sm mb-0 align-middle"><caption class="px-2 small">ネット予約の流入元（utm_source、無ければ参照元）</caption><thead><tr><th scope="col">流入元</th><th scope="col">件数</th><th scope="col">人数</th><th scope="col">泊数</th><th scope="col">金額</th></tr></thead><tbody>' +
+          list.map(function (r) { return '<tr><td class="text-break">' + e(r.key) + '</td><td>' + r.count + '件</td><td>' + r.guests + '名</td><td>' + r.nights + '泊</td><td>' + yen(r.pay) + '</td></tr>'; }).join('') + '</tbody></table></div>';
+      };
       var row = function (key, name, v, tag) { return '<tr data-row="' + key + '"><' + tag + '>' + name + '</' + tag + '><td>' + v.count + '件</td><td>' + v.guests + '名</td><td>' + v.nights + '泊</td><td>' + yen(v.pay) + '</td></tr>'; };
       j.months.forEach(function (x) {
         h += '<div class="card mb-3 shadow-sm" data-month="' + e(x.month) + '"><div class="card-header d-flex justify-content-between align-items-center fw-bold"><a href="/admin?m=' + e(x.month) + '" data-go>' + bi('calendar3') + ' ' + label(x.month) + '</a><span class="badge ' + (x.cancelled ? 'text-bg-secondary' : 'text-bg-light border') + '" data-row="cancelled">キャンセル ' + x.cancelled + '件</span></div>' +
           '<div class="table-responsive"><table class="table table-striped table-sm mb-0 align-middle"><thead><tr><th scope="col"></th><th scope="col">件数</th><th scope="col">人数</th><th scope="col">泊数</th><th scope="col">金額</th></tr></thead><tbody>' +
-          row('web', 'ネット予約', x.web, 'td') + row('manual', '電話・LINE', x.manual, 'td') + '</tbody><tfoot class="table-group-divider">' + row('total', '合計', x.total, 'td').replace('<tr ', '<tr class="table-primary fw-bold" ') + '</tfoot></table></div></div>';
+          row('web', 'ネット予約', x.web, 'td') + row('manual', '電話・LINE', x.manual, 'td') + '</tbody><tfoot class="table-group-divider">' + row('total', '合計', x.total, 'td').replace('<tr ', '<tr class="table-primary fw-bold" ') + '</tfoot></table></div>' + srcTable(srcOf(x.month)) + '</div>';
       });
       M.innerHTML = h;
     }).catch(function (x) { M.innerHTML = err(x); });
@@ -274,6 +281,14 @@ const SCRIPT = String.raw`
       h += cardBs('envelope', 'メール', b.source === 'web'
         ? lg([liRow('確認メール', mailText(b.mail_guest)), liRow('宿への通知', mailText(b.mail_inn))])
         : lg([liRow('送信', '<span class="badge text-bg-secondary">送っていません</span>')]));
+      // 流入元（要件差分 予約の流入元 2026-10-17 決まり 3）：ネット予約だけ・見るだけ。取れなかった項目は空のまま
+      if (b.source === 'web') {
+        var none = function (v) { return v ? e(v) : '<span class="text-secondary">' + (b.pii_deleted_at ? '（消去済み）' : '（取れていません）') + '</span>'; };
+        h += cardBs('signpost-split', '流入元', lg([
+          liRow('参照元', none(b.src_referrer)), liRow('utm_source', none(b.src_utm_source)), liRow('utm_medium', none(b.src_utm_medium)),
+          liRow('utm_campaign', none(b.src_utm_campaign)), liRow('ランディングページ', none(b.src_landing)), liRow('直前のページ', none(b.src_prev))
+        ]), ' data-card="source"');
+      }
       h += cardBs('shield-check', '同意', b.privacy_agreed_at
         ? lg([liRow('個人情報', '<span class="badge text-bg-success">' + bi('check2-circle') + ' 同意済み</span> プライバシーポリシーに同意（' + when(b.privacy_agreed_at) + '・版 ' + e(b.privacy_version) + '）')])
         : lg([liRow('個人情報', '<span class="badge text-bg-secondary">記録なし</span>')]));

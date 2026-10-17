@@ -105,7 +105,9 @@ export async function handleAdminApi(site, env, request, user, now = new Date())
       case "GET /stats": {
         // 月ごとの数字（2026-10-13 宿の依頼）。チェックインの月に、件数・人数・泊数・金額（保存してある pay）を全部入れる。
         // キャンセルは件数だけ。名前に「テスト」「試験」を含む試しの予約は入れない。受付を始めた月から受付期間の最後の月まで、0件の月も並べる
-        const first = site.bookingStart.slice(0, 7), last = monthOf(addDays(todayJst(now), site.bookingDaysAhead));
+        // 電話・LINE の予約は過去の日も登録できる（要件差分 第3版 決まり 10）ので、受付を始めた月より前に予約があれば、いちばん古い予約の月から並べる
+        const oldest = await db.prepare("SELECT MIN(checkin) AS d FROM bookings WHERE COALESCE(name, '') NOT LIKE '%テスト%' AND COALESCE(name, '') NOT LIKE '%試験%'").first();
+        const first = [site.bookingStart.slice(0, 7), oldest?.d ? oldest.d.slice(0, 7) : "9999-12"].sort()[0], last = monthOf(addDays(todayJst(now), site.bookingDaysAhead));
         const { results } = await db
           .prepare("SELECT substr(checkin, 1, 7) AS m, source, status, COUNT(*) AS n, SUM(guests) AS g, SUM(nights) AS ni, SUM(pay) AS p FROM bookings WHERE COALESCE(name, '') NOT LIKE '%テスト%' AND COALESCE(name, '') NOT LIKE '%試験%' AND checkin >= ? AND checkin < ? GROUP BY 1, 2, 3")
           .bind(first + "-01", ymd(addDays(parseYmd(last + "-01"), 31)).slice(0, 7) + "-01")
@@ -124,7 +126,13 @@ export async function handleAdminApi(site, env, request, user, now = new Date())
             x[k].count += r.n; x[k].guests += r.g; x[k].nights += r.ni; x[k].pay += r.p;
           }
         }
-        return { months };
+        // 流入元別（要件差分 予約の流入元 決まり 4・基本設計書 F-R5）：ネット予約だけ。まとめる鍵は utm_source → 参照元 →（直接・不明）。キャンセル・試しの予約は入れない
+        const src = await db
+          .prepare("SELECT substr(checkin, 1, 7) AS m, COALESCE(src_utm_source, src_referrer, '（直接・不明）') AS k, COUNT(*) AS n, SUM(guests) AS g, SUM(nights) AS ni, SUM(pay) AS p FROM bookings WHERE source = 'web' AND status = 'booked' AND COALESCE(name, '') NOT LIKE '%テスト%' AND COALESCE(name, '') NOT LIKE '%試験%' AND checkin >= ? AND checkin < ? GROUP BY 1, 2 ORDER BY 1, 3 DESC, 2")
+          .bind(first + "-01", ymd(addDays(parseYmd(last + "-01"), 31)).slice(0, 7) + "-01")
+          .all();
+        const sources = src.results.map((r) => ({ month: r.m, key: r.k, count: r.n, guests: r.g, nights: r.ni, pay: r.p }));
+        return { months, sources };
       }
       case "GET /day": {
         const d = ymd(parseYmd(q.d));

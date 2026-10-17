@@ -3,6 +3,7 @@
 //   /         数行だけのページ（単独で開いた形。下のボタンは画面の下に固定）
 //   /framed   STUDIO の形をまねたページ：親ページに web/parent-height.html・parent-ga4.html の中身を入れ、予約画面（/）を枠（iframe）で読む。
 //             親の決まり（*.studioiframesandbox.com からの知らせだけ受ける）は、手元の住所（localhost）からも受けるように替えてある
+//   /lp・/lp2 サイトのほかのページの見本：サイト全体のカスタムコード web/site-source.html だけを入れる（流入元の試験。/framed にも入れてある）
 //   /old      前の埋め込み（web/embed.html を丸ごと貼る形）。本番の Worker がいまの埋め込みのままでも動くかを見るため
 import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
@@ -26,7 +27,9 @@ createServer((req, res) => {
       `<div style="max-width:720px;margin:0 auto;padding:24px 18px"><h1 style="font:700 20px sans-serif">ご予約</h1>` +
       `<sandbox-iframe style="display:block;height:1000px"><iframe src="/" title="予約" style="width:100%;height:100%;border:0;display:block"></iframe></sandbox-iframe>` +
       `<p style="font:14px sans-serif;color:#666">（ここから下はサイトのフッター）</p><div style="height:600px;background:#eee"></div></div>` +
-      parentCode("parent-height.html") + parentCode("parent-ga4.html"));
+      parentCode("site-source.html") + parentCode("parent-height.html") + parentCode("parent-ga4.html"));
+  } else if (path === "/lp" || path === "/lp2") {
+    html = page("サイトのほかのページ（手元）", `<p><a href="/framed">予約へ</a></p>` + parentCode("site-source.html"));
   } else if (path === "/old") html = page("前の予約画面（手元）", web("embed.html").replace(/var YBK_API = '[^']*';/, `var YBK_API = '${api}';`));
   if (!html) { res.writeHead(404); return res.end(); }
   res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });

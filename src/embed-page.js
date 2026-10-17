@@ -351,7 +351,7 @@ const SCRIPT = String.raw`
       if (!checkStep(3, 'book')) return msg(3, '');
       t.disabled = true; msg(3, '送信しています…');
       var qd = state.quote;
-      api(null, { action: 'book', checkin: qd.checkin, nights: qd.nights, guests: qd.guests, name: f('name'), tel: f('tel'), email: f('email'), address: f('address'), arrival: f('arrival'), note: f('note'), agree: true, privacyAgree: true }, qd.checkin + ' ' + qd.nights + '泊 ' + qd.guests + '名').then(function (j) {
+      api(null, { action: 'book', checkin: qd.checkin, nights: qd.nights, guests: qd.guests, name: f('name'), tel: f('tel'), email: f('email'), address: f('address'), arrival: f('arrival'), note: f('note'), agree: true, privacyAgree: true, src: src }, qd.checkin + ' ' + qd.nights + '泊 ' + qd.guests + '名').then(function (j) {
         t.disabled = false;
         if (!j.ok) { if (serverErrs(j, 3)) return msg(3, ''); return msg(3, j.error); }
         msg(3, '');
@@ -366,6 +366,16 @@ const SCRIPT = String.raw`
       }).catch(function () { t.disabled = false; msg(3, '通信できませんでした。予約が入ったか分からないため、公式LINEかお電話でお問い合わせください。'); });
     }
   });
+
+  // 流入元（要件差分 予約の流入元 2026-10-17）：外側のページ（サイト全体のカスタムコード web/site-source.html）に聞き、返ってきた値を予約に添える。
+  // 受けるのは外側のページ（window.parent）からの返事だけ。返事が無くても予約はいつもどおり（src は null のまま）
+  var src = null;
+  window.addEventListener('message', function (e) {
+    if (!framed || e.source !== window.parent) return;
+    var d = e.data;
+    if (d && d.type === 'ybk-src' && typeof d.src === 'object') src = d.src;
+  });
+  if (framed) { try { window.parent.postMessage({ type: 'ybk-src-ask' }, '*'); } catch (x) {} }
 
   // 画面の高さを外側のページ（STUDIO /yoyaku のカスタムコード web/parent-height.html）へ知らせ、枠の高さを中身に合わせてもらう（下に白い余白が残らないように。2026-10-06 nao）
   var lastH = 0;
