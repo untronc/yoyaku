@@ -77,22 +77,30 @@ describe("月の指定（予約画面のカレンダー GET /api action=calendar
 });
 
 describe("管理画面：電話・LINE の予約を足す（POST /admin/api/manual）", () => {
-  it.each(fieldCases("manual", site, ctx()).map((c) => [title(c), c]))("%s", async (_, c) => {
+  it.each(fieldCases("manual", site, ctx("manual")).map((c) => [title(c), c]))("%s", async (_, c) => {
     const cookie = await login();
     judged(await admin(cookie, "/manual", c.input), c);
     expect(await count("bookings")).toBe(c.expect ? 0 : 1);
   });
 });
 
-describe("管理画面：日付・人数の変更（POST /admin/api/change）と料金の下見（POST /admin/api/quote）", () => {
-  it.each(fieldCases("stay", site, ctx()).map((c) => [title(c), c]))("%s", async (_, c) => {
+for (const source of ["web", "manual"]) {
+  describe(`管理画面：日付・人数の変更（POST /admin/api/change）と料金の下見（POST /admin/api/quote・${source === "web" ? "予約画面からの予約" : "電話・LINE の予約"}）`, () => {
+    it.each(fieldCases("stay", site, ctx(source)).map((c) => [title(c), c]))("%s", async (_, c) => {
+      const cookie = await login();
+      const id = await seed(source);
+      judged(await admin(cookie, "/quote", { id, ...c.input }), c);
+      const before = await row(id);
+      judged(await admin(cookie, "/change", { id, ...c.input }), c);
+      if (c.expect) expect(await row(id)).toEqual(before);
+    });
+  });
+}
+
+describe("管理画面：予約を足す前の料金の下見（POST /admin/api/quote・予約番号なし＝電話・LINE の予約）", () => {
+  it.each(fieldCases("stay", site, ctx("manual")).map((c) => [title(c), c]))("%s", async (_, c) => {
     const cookie = await login();
-    const id = await seed("web");
     judged(await admin(cookie, "/quote", c.input), c);
-    judged(await admin(cookie, "/quote", { id, ...c.input }), c);
-    const before = await row(id);
-    judged(await admin(cookie, "/change", { id, ...c.input }), c);
-    if (c.expect) expect(await row(id)).toEqual(before);
   });
 });
 

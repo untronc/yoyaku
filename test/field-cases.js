@@ -143,10 +143,11 @@ function dateCases(f, site, ctx) {
     if (site.bookingStart && site.bookingStart > plus(t, 1)) out.push(["受付開始日の前日", plus(site.bookingStart, -1), expect(plus(site.bookingStart, -1))]);
     return out;
   }
-  // 管理画面（電話・LINE の予約・日付の変更）：今日以降。先の上限なし
+  // 管理画面（電話・LINE の予約・日付の変更）：電話・LINE の予約（source manual）は昨日以前も可、予約画面からの予約の変更は今日以降（要件差分 第3版 2026-10-17）。先の上限なし
   return [
     ["空", "", "チェックインの日を選んでください"],
-    ["昨日", plus(t, -1), "過去の日は選べません"],
+    ["昨日", plus(t, -1), ctx.source === "manual" ? null : "過去の日は選べません"],
+    ["先月", plus(t, -40), ctx.source === "manual" ? null : "過去の日は選べません"],
     ["今日", t, null],
     ["400日先", plus(t, 400), null],
     ["形の違い（/）", plus(t, 19).replace(/-/g, "/"), fmt],

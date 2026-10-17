@@ -39,15 +39,13 @@ async function fullNights(site, db, checkin, checkout, exceptId) {
   });
 }
 
-/** b はいまの予約（変更・下見のとき）。日付・泊数・人数がそのままなら、昨日以前のチェックインも通す */
-function stay(site, body, version, now, b) {
-  const v = validOrThrow("stay", body, site, { now, current: current(b) });
+/** source は受付経路。電話・LINE の予約（manual）は昨日以前のチェックインも通す。予約画面からの予約（web）は今日以降のまま */
+function stay(site, body, version, now, source) {
+  const v = validOrThrow("stay", body, site, { now, source });
   const checkin = parseYmd(v.checkin), nights = v.nights, guests = v.guests;
   const checkout = addDays(checkin, nights);
   return { checkin, checkout, nights, guests, price: price(site, guests, nights, version) };
 }
-
-const current = (b) => (b ? { checkin: b.checkin, nights: b.nights, guests: b.guests } : undefined);
 
 /** お支払いの値。手入力（custom）なら入れた合計（割引なし）、定価（list）なら料金表の計算（要件差分 第2版 H-2・H-4・H-7） */
 function money(v, p) {
@@ -146,7 +144,8 @@ export async function handleAdminApi(site, env, request, user, now = new Date())
       case "POST /quote": {
         // 変更・登録の前に、料金と満室の日を見せる
         const b = body.id ? (await db.prepare("SELECT * FROM bookings WHERE id = ?").bind(String(body.id)).first()) || bad("予約が見つかりません") : null;
-        const s = stay(site, body, b ? b.price_version : site.price.current, now, b);
+        // 予約番号の無い下見は「予約を足す」（電話・LINE の予約）
+        const s = stay(site, body, b ? b.price_version : site.price.current, now, b ? b.source : "manual");
         return { price: s.price, checkout: ymd(s.checkout), full: await fullNights(site, db, s.checkin, s.checkout, b?.id) };
       }
       case "POST /cancel": {
@@ -164,10 +163,10 @@ export async function handleAdminApi(site, env, request, user, now = new Date())
         // 料金は予約したときの料金表で計算し直す。満室・受付停止の日への変更も受ける（宿の判断。要件 5節）
         // 金額の入れ方を送らない変更（前の版の画面など）は、いまの入れ方と合計のまま（手入力の予約を黙って定価に戻さない。qa 2026-10-15）
         const keep = String(body.priceMode ?? "").trim() === "" && b.price_mode === "custom" ? { priceMode: "custom", customPay: b.pay } : {};
-        const v = validOrThrow("change", { ...body, ...keep }, site, { now, current: current(b) });
+        const v = validOrThrow("change", { ...body, ...keep }, site, { now, source: b.source });
         // 金額の手入力は電話・LINE の予約だけ（要件差分 第2版 H-1）
         if (v.priceMode === "custom" && b.source !== "manual") bad("予約画面からの予約は、金額を手入力にできません");
-        const s = stay(site, v, b.price_version, now, b);
+        const s = stay(site, v, b.price_version, now, b.source);
         // 手入力のときは送られた合計のまま（日付・人数を変えても計算し直さない。H-6）。定価に戻したら料金表で計算し直す（H-7）
         const m = money(v, s.price);
         const after = { ...b, checkin: ymd(s.checkin), checkout: ymd(s.checkout), nights: s.nights, guests: s.guests, per_person: s.price.perPerson, ...m };
@@ -209,8 +208,8 @@ export async function handleAdminApi(site, env, request, user, now = new Date())
       }
       case "POST /manual": {
         // 電話・LINE の予約。日付・泊数・人数・氏名（電話・メモは任意）。メールは送らない。不正利用対策の数には入れない
-        const v = validOrThrow("manual", body, site, { now });
-        const s = stay(site, v, site.price.current, now);
+        const v = validOrThrow("manual", body, site, { now, source: "manual" });
+        const s = stay(site, v, site.price.current, now, "manual");
         const { name, tel, memo } = v;
         const full = await fullNights(site, db, s.checkin, s.checkout);
         // 金額の手入力（要件差分 第2版）：入れた合計がお支払い。割引は掛けない。料金表の 1名1泊 は残す（解除したときと画面のグレー表示に使う）

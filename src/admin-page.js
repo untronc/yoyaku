@@ -321,8 +321,8 @@ const SCRIPT = String.raw`
       if (!live) return;
       document.getElementById('cancelName').textContent = name + ' 様（' + b.id + '）　' + jp(b.checkin) + '〜' + jp(b.checkout);
       var chBox = document.getElementById('chCard');
-      // 日付・泊数・人数がそのまま（金額だけの変更）なら、チェックインが昨日以前でも通す（要件差分 第3版 業務の決まり 9）
-      var cur = { current: { checkin: b.checkin, nights: b.nights, guests: b.guests } };
+      // 電話・LINE の予約は、チェックインが昨日以前でも変えられる（要件差分 第3版 業務の決まり 9・10）。予約画面からの予約は今日以降のまま
+      var cur = { source: b.source };
       var show = function () {
         var body = { id: b.id, checkin: val('ci'), nights: +val('ni'), guests: +val('gu') };
         if (!checkForm(chBox, 'stay', body, cur)) { document.getElementById('chq').innerHTML = ''; return; }
@@ -358,6 +358,8 @@ const SCRIPT = String.raw`
   }
 
   // スイッチを切り替えたら欄を出し入れし、下見を出し直す
+  // 電話・LINE の予約は、昨日以前の日も登録できる（登録し忘れ。要件差分 第3版 業務の決まり 10）
+  var MANUAL = { source: 'manual' };
   function wirePay(show) {
     document.getElementById('pmode').onchange = function () { document.getElementById('pbox').hidden = !this.checked; show(); };
     document.getElementById('cpay').oninput = show;
@@ -376,7 +378,7 @@ const SCRIPT = String.raw`
     var box = document.getElementById('addCard');
     var show = function () {
       var body = { checkin: val('ci'), nights: +val('ni'), guests: +val('gu') };
-      if (!checkForm(box, 'stay', body)) { document.getElementById('q').innerHTML = ''; return; }
+      if (!checkForm(box, 'stay', body, MANUAL)) { document.getElementById('q').innerHTML = ''; return; }
       var my = ++quoteSeq;
       api('/quote', body).then(function (q) { if (my === quoteSeq) document.getElementById('q').innerHTML = quoteHtml('', val('ci'), q, '登録する', payNow()); })
         .catch(function (x) { fail(box, function (y) { document.getElementById('q').innerHTML = err(y); }, x); });
@@ -386,7 +388,7 @@ const SCRIPT = String.raw`
     show();
     document.getElementById('add').onclick = function () {
       var body = payInput({ checkin: val('ci'), nights: +val('ni'), guests: +val('gu'), name: val('nm'), tel: val('tel'), memo: val('memo') });
-      if (!checkForm(box, 'manual', body)) return;
+      if (!checkForm(box, 'manual', body, MANUAL)) return;
       this.disabled = true;
       api('/manual', body)
         .then(function (j) { go('/admin/b/' + encodeURIComponent(j.id)); })

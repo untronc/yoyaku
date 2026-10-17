@@ -524,7 +524,7 @@ describe("金額の手入力（要件差分 第2版 2026-10-14・基本設計書
   });
 });
 
-describe("昨日以前の予約の金額（要件差分 第3版 2026-10-17 業務の決まり 9・受け入れ条件 9〜10）", () => {
+describe("昨日以前の電話・LINE の予約（要件差分 第3版 2026-10-17 業務の決まり 9・10・受け入れ条件 9〜12）", () => {
   const row = (id) => env.DB.prepare("SELECT * FROM bookings WHERE id = ?").bind(id).first();
   // 2027-02-01 に入った予約を、2027-02-03 の今日から触る（1泊＝泊まり終わった・3泊＝滞在中）
   const LATER = new Date("2027-02-03T03:00:00Z");
@@ -560,18 +560,46 @@ describe("昨日以前の予約の金額（要件差分 第3版 2026-10-17 業�
     expect((await post(c, "/quote", { id, checkin: "2027-02-01", nights: 1, guests: 2 })).status).toBe(200);
   });
 
-  it("[受け入れ 10] 昨日以前の予約の日付・泊数・人数の変更は、いまのまま断る（何も変わらない）", async () => {
+  it("[受け入れ 10] 昨日以前の電話・LINE の予約で、日付・泊数・人数を変えて保存でき、月ごとの数字と変更履歴に入る", async () => {
     const c = await login();
     const id = await manual(c);
-    const before = await row(id);
     for (const ch of [{ checkin: "2027-01-31" }, { nights: 2 }, { guests: 3 }]) {
-      const res = await post(c, "/change", { id, checkin: "2027-02-01", nights: 1, guests: 2, priceMode: "custom", customPay: 8000, ...ch });
-      expect(res.status).toBe(400);
-      expect((await res.json()).errors).toMatchObject({ checkin: "過去の日は選べません" });
-      expect((await post(c, "/quote", { id, checkin: "2027-02-01", nights: 1, guests: 2, ...ch })).status).toBe(400);
+      const body = { id, checkin: "2027-02-01", nights: 1, guests: 2, ...ch };
+      expect((await post(c, "/quote", body)).status).toBe(200);
+      expect((await post(c, "/change", body)).status).toBe(200);
+      expect(await row(id)).toMatchObject({ checkin: body.checkin, nights: body.nights, guests: body.guests });
     }
-    expect(await row(id)).toMatchObject({ pay: before.pay, updated_at: before.updated_at });
-    // 予約番号の無い下見（新しい登録）も、いまのまま昨日以前の日を断る
-    expect((await post(c, "/quote", { checkin: "2027-02-01", nights: 1, guests: 2 })).status).toBe(400);
+    expect(await row(id)).toMatchObject({ checkin: "2027-02-01", nights: 1, guests: 3, pay: 15000 });
+    const h = (await (await adminGet(c, "/booking?id=" + id)).json()).history;
+    expect(h.slice(1).map((x) => x.kind)).toEqual(["change", "change", "change"]);
+    const s = (await (await adminGet(c, "/stats")).json()).months.find((m) => m.month === "2027-02");
+    expect(s.manual).toMatchObject({ count: 1, guests: 3, nights: 1, pay: 15000 });
+  });
+
+  it("[受け入れ 11] 昨日・先月の日の電話・LINE の予約を新しく登録でき、月ごとの数字のその月に入る", async () => {
+    const c = await login();
+    for (const d of ["2027-02-02", "2027-01-10"]) {
+      expect((await post(c, "/quote", { checkin: d, nights: 1, guests: 2 })).status).toBe(200);
+      const res = await post(c, "/manual", { checkin: d, nights: 1, guests: 2, name: "常連", priceMode: "custom", customPay: 7000 });
+      expect(res.status).toBe(200);
+    }
+    const months = (await (await adminGet(c, "/stats")).json()).months;
+    expect(months.find((m) => m.month === "2027-02").manual).toMatchObject({ count: 1, pay: 7000 });
+    expect(months.find((m) => m.month === "2027-01").manual).toMatchObject({ count: 1, pay: 7000 });
+  });
+
+  it("[受け入れ 12] 予約画面からの予約は、いまのまま：昨日以前の日への変更を断り、予約画面は明日以降しか受けない", async () => {
+    const c = await login();
+    const no = await webBooking();
+    const before = await row(no);
+    const res = await post(c, "/change", { id: no, checkin: "2027-02-01", nights: 1, guests: 2 });
+    expect(res.status).toBe(400);
+    expect((await res.json()).errors).toMatchObject({ checkin: "過去の日は選べません" });
+    expect((await post(c, "/quote", { id: no, checkin: "2027-02-01", nights: 1, guests: 2 })).status).toBe(400);
+    expect(await row(no)).toMatchObject({ checkin: before.checkin, updated_at: before.updated_at });
+    for (const d of ["2027-02-02", "2027-02-03"]) {
+      const r = await call("/api", { method: "POST", headers: { Origin: STUDIO, "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(bookBody({ checkin: d })) }, later);
+      expect((await r.json()).ok).toBe(false);
+    }
   });
 });
