@@ -322,8 +322,11 @@ describe("月ごとの数字（2026-10-13 宿の依頼）", () => {
       web: { count: 1, guests: 2, nights: 3, pay: 27000 },
       manual: { count: 1, guests: 1, nights: 1, pay: 5500 },
       total: { count: 2, guests: 3, nights: 4, pay: 32500 },
+      // チェックアウト済み（チェックアウトの日が今日 2026-11-01 以前）の金額。グラフの濃い色の部分（2026-10-17 nao）
+      done: { pay: 5500 },
       cancelled: 1,
     });
+    expect(by["2026-11"].done).toEqual({ pay: 0 });
     expect(by["2026-11"].total).toEqual({ count: 1, guests: 1, nights: 2, pay: 11000 });
     expect(by["2026-11"].cancelled).toBe(0);
   });
@@ -339,7 +342,7 @@ describe("月ごとの数字（2026-10-13 宿の依頼）", () => {
       expect(j.months[i].month).toBe(m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, "0")}`);
     }
     const zero = { count: 0, guests: 0, nights: 0, pay: 0 };
-    expect(j.months[1]).toEqual({ month: j.months[1].month, web: zero, manual: zero, total: zero, cancelled: 0 });
+    expect(j.months[1]).toEqual({ month: j.months[1].month, web: zero, manual: zero, total: zero, done: { pay: 0 }, cancelled: 0 });
   });
 
   it("ログインしていなければ見られない", async () => {

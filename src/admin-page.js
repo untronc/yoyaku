@@ -1,7 +1,7 @@
 // 管理画面の HTML（1枚。画面の切り替えはこの中の JS）。スマートフォンでの利用を優先する
 // 見た目は Bootstrap 5.3.3（Worker の静的ファイル /vendor/… から読む。CDN に頼らない）と src/theme.js。形は紙芝居の Bootstrap 版（基本設計書 追補 2026-10-13 S-01）
 // 色は <html data-theme> で決まる。「設定」で色を変えると、その場で属性を替える（再読み込みなしで効く）
-// 画面：月の表（/admin）・日の予約（/admin/d/日付）・予約の詳細（/admin/b/予約番号）・予約を足す（/admin/new）・受付の設定（/admin/rules）・月ごとの数字（/admin/stats）・設定（/admin/settings）・名前（/admin/me）
+// 画面：月の表（/admin）・日の予約（/admin/d/日付）・予約の詳細（/admin/b/予約番号）・予約を足す（/admin/new）・受付の設定（/admin/rules）・売上管理（/admin/stats。旧名 月ごとの数字）・設定（/admin/settings）・名前（/admin/me）
 import { BOOTSTRAP_CSS, BOOTSTRAP_JS, ICONS_CSS } from "./assets.js";
 import { THEME_KEYS, THEMES, adminCss, themeOf } from "./theme.js";
 
@@ -25,7 +25,7 @@ export function adminPage(site, theme) {
 <a class="navbar-brand" href="/admin" data-go>${esc(site.innName)} 予約管理</a>
 <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#admNav" aria-controls="admNav" aria-expanded="false" aria-label="メニューを開く"><span class="navbar-toggler-icon"></span></button>
 <div class="collapse navbar-collapse" id="admNav"><ul class="navbar-nav me-auto">
-${nav("/admin", "calendar3", "月の表", "month")}${nav("/admin/rules", "sliders", "受付の設定", "rules")}${nav("/admin/stats", "bar-chart-line", "月ごとの数字", "stats")}${nav("/admin/settings", "palette", "設定", "settings")}
+${nav("/admin", "calendar3", "月の表", "month")}${nav("/admin/rules", "sliders", "受付の設定", "rules")}${nav("/admin/stats", "bar-chart-line", "売上管理", "stats")}${nav("/admin/settings", "palette", "設定", "settings")}
 </ul><ul class="navbar-nav"><li class="nav-item"><a class="nav-link" href="/admin/me" data-go data-nav="me"><i class="bi bi-person-circle" aria-hidden="true"></i> <span id="me">…</span></a></li></ul></div></div></nav>
 <main class="adm-main" id="main"><p class="text-secondary">読み込み中…</p></main>
 <div class="modal fade" id="cancelModal" tabindex="-1" aria-labelledby="cancelModalLabel" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content">
@@ -169,11 +169,15 @@ const SCRIPT = String.raw`
     api('/stats').then(function (j) {
       var max = Math.max.apply(null, j.months.map(function (x) { return x.total.pay; }).concat([1]));
       var label = function (mo) { return mo.slice(0, 4) + '年' + (+mo.slice(5)) + '月'; };
-      var h = '<h1>月ごとの数字</h1><p class="form-text">泊まる月（チェックインの月）ごと。月をまたぐ予約はチェックインの月に入れる。金額は予約の合計（連泊割引のあと）。キャンセルは件数だけで、件数・金額には入れない。名前に「テスト」「試験」を含む予約は入れない。</p>';
-      h += cardBs('bar-chart-fill', '月ごとの金額の比べ', '<div class="card-body bs-bars">' + j.months.map(function (x) {
-        var pct = Math.round(x.total.pay / max * 100);
-        return '<div class="d-flex align-items-center gap-2 mb-2"><span class="bar-label">' + label(x.month) + '</span><div class="progress flex-grow-1" role="progressbar" aria-label="' + label(x.month) + 'の金額" aria-valuenow="' + pct + '" aria-valuemin="0" aria-valuemax="100"><div class="progress-bar" style="width:' + pct + '%"></div></div><span class="fw-bold text-end" style="flex:0 0 6.2em;font-size:.8125rem">' + yen(x.total.pay) + '</span></div>';
-      }).join('') + '</div>');
+      // 見出しは「売上管理」「月別売上の推移」。予約の売り上げは透明度50・チェックアウト済みはいまの色
+      var h = '<h1>売上管理</h1><p class="form-text">泊まる月（チェックインの月）ごと。月をまたぐ予約はチェックインの月に入れる。金額は予約の合計（連泊割引のあと）。キャンセルは件数だけで、件数・金額には入れない。名前に「テスト」「試験」を含む予約は入れない。</p>';
+      h += cardBs('bar-chart-fill', '月別売上の推移', '<div class="card-body bs-bars">' + j.months.map(function (x) {
+        var done = x.done ? x.done.pay : 0, pDone = done / max * 100, pRest = (x.total.pay - done) / max * 100;
+        return '<div class="d-flex align-items-center gap-2 mb-2" data-bar="' + e(x.month) + '"><span class="bar-label">' + label(x.month) + '</span><div class="progress-stacked flex-grow-1">' +
+          '<div class="progress" role="progressbar" aria-label="' + label(x.month) + 'のチェックアウト済み" aria-valuenow="' + Math.round(pDone) + '" aria-valuemin="0" aria-valuemax="100" style="width:' + pDone + '%" data-part="done"><div class="progress-bar"></div></div>' +
+          '<div class="progress" role="progressbar" aria-label="' + label(x.month) + 'の予約（チェックアウト前）" aria-valuenow="' + Math.round(pRest) + '" aria-valuemin="0" aria-valuemax="100" style="width:' + pRest + '%" data-part="booked"><div class="progress-bar" style="opacity:.5"></div></div>' +
+          '</div><span class="fw-bold text-end" style="flex:0 0 6.2em;font-size:.8125rem">' + yen(x.total.pay) + '</span></div>';
+      }).join('') + '<div class="d-flex flex-wrap gap-3 small text-secondary mt-2"><span><span class="d-inline-block rounded-1 bg-primary align-middle" style="width:1em;height:.75em"></span> チェックアウト済み</span><span><span class="d-inline-block rounded-1 bg-primary align-middle" style="width:1em;height:.75em;opacity:.5"></span> 予約（チェックアウト前）</span></div></div>');
       // 流入元別（決まり 4）：ネット予約だけ。utm_source → 参照元 →（直接・不明）でまとめる
       var srcOf = function (mo) { return (j.sources || []).filter(function (r) { return r.month === mo; }); };
       var srcTable = function (list) {

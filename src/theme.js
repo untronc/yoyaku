@@ -126,7 +126,7 @@ body{background:var(--bg)}
 .table{--bs-table-striped-bg:var(--cap);font-size:.875rem;white-space:nowrap}
 .table td:not(:first-child),.table th:not(:first-child){text-align:right}
 .table-primary{--bs-table-bg:var(--p-sub);--bs-table-color:var(--p-text);--bs-table-border-color:var(--p-sub-bd)}
-.bs-bars .progress{height:1.4rem;--bs-progress-bar-bg:var(--p-solid);--bs-progress-bg:var(--cap)}
+.bs-bars .progress{height:1.4rem;--bs-progress-bar-bg:var(--p-solid);--bs-progress-bg:var(--cap)}.bs-bars .progress-stacked{height:1.4rem;background:var(--cap)}.bs-bars .progress-stacked>.progress{--bs-progress-bg:transparent}
 .bs-bars .bar-label{flex:0 0 5.2em;font-size:.8125rem}
 .theme-opt{display:flex;align-items:center;gap:.75rem;padding:.75rem;border:1px solid var(--line);border-radius:.5rem;background:#fff;cursor:pointer;margin:0 0 .5rem}
 .theme-opt:has(input:checked){border-color:var(--p-solid);box-shadow:0 0 0 1px var(--p-solid)}

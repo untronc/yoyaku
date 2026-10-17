@@ -109,19 +109,21 @@ export async function handleAdminApi(site, env, request, user, now = new Date())
         const oldest = await db.prepare("SELECT MIN(checkin) AS d FROM bookings WHERE COALESCE(name, '') NOT LIKE '%テスト%' AND COALESCE(name, '') NOT LIKE '%試験%'").first();
         const first = [site.bookingStart.slice(0, 7), oldest?.d ? oldest.d.slice(0, 7) : "9999-12"].sort()[0], last = monthOf(addDays(todayJst(now), site.bookingDaysAhead));
         const { results } = await db
-          .prepare("SELECT substr(checkin, 1, 7) AS m, source, status, COUNT(*) AS n, SUM(guests) AS g, SUM(nights) AS ni, SUM(pay) AS p FROM bookings WHERE COALESCE(name, '') NOT LIKE '%テスト%' AND COALESCE(name, '') NOT LIKE '%試験%' AND checkin >= ? AND checkin < ? GROUP BY 1, 2, 3")
-          .bind(first + "-01", ymd(addDays(parseYmd(last + "-01"), 31)).slice(0, 7) + "-01")
+          .prepare("SELECT substr(checkin, 1, 7) AS m, source, status, COUNT(*) AS n, SUM(guests) AS g, SUM(nights) AS ni, SUM(pay) AS p, SUM(CASE WHEN checkout <= ? THEN pay ELSE 0 END) AS dp FROM bookings WHERE COALESCE(name, '') NOT LIKE '%テスト%' AND COALESCE(name, '') NOT LIKE '%試験%' AND checkin >= ? AND checkin < ? GROUP BY 1, 2, 3")
+          .bind(ymd(todayJst(now)), first + "-01", ymd(addDays(parseYmd(last + "-01"), 31)).slice(0, 7) + "-01")
           .all();
         const zero = () => ({ count: 0, guests: 0, nights: 0, pay: 0 });
         const months = [];
         for (let d = parseYmd(first + "-01"); monthOf(d) <= last; d = parseYmd(monthOf(addDays(d, 31)) + "-01")) {
-          months.push({ month: monthOf(d), web: zero(), manual: zero(), total: zero(), cancelled: 0 });
+          // done：チェックアウト済み（チェックアウトの日が今日以前）の金額。売上管理のグラフで濃い色にする（2026-10-17 nao）
+          months.push({ month: monthOf(d), web: zero(), manual: zero(), total: zero(), done: { pay: 0 }, cancelled: 0 });
         }
         const byMonth = Object.fromEntries(months.map((x) => [x.month, x]));
         for (const r of results) {
           const x = byMonth[r.m];
           if (!x) continue;
           if (r.status !== "booked") { x.cancelled += r.n; continue; }
+          x.done.pay += r.dp;
           for (const k of [r.source === "web" ? "web" : "manual", "total"]) {
             x[k].count += r.n; x[k].guests += r.g; x[k].nights += r.ni; x[k].pay += r.p;
           }
