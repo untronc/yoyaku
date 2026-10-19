@@ -48,7 +48,6 @@ export default defineSite({
     replyTo: "owner@example.com",
     bcc: "operator@example.com",
   },
-  piiRetentionYears: 3,
   accessLogDays: 90,
   privacyVersion: "第1版",
 });

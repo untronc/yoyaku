@@ -242,7 +242,7 @@ const SCRIPT = String.raw`
   var KIND = { create: '作成', cancel: 'キャンセル', change: '日付・人数の変更', price: '金額の変更', memo: 'メモを変更', info: 'お客様の情報を直す' };
   var KICON = { create: 'plus-lg', cancel: 'x-lg', change: 'arrow-left-right', price: 'cash-coin', memo: 'journal-text', info: 'pencil-fill' };
   var FIELD = { name: 'お名前', tel: '電話', email: 'メール', address: 'ご住所', arrival: '到着予定', note: 'ご要望' };
-  function infoText(x) { if (!x.before) return '（3年たったので値は消去済み）'; return Object.keys(x.after).map(function (k) { return (FIELD[k] || k) + '：' + (x.before[k] || '（空）') + ' → ' + (x.after[k] || '（空）'); }).join('\n'); }
+  function infoText(x) { if (!x.before) return '（値はありません）'; return Object.keys(x.after).map(function (k) { return (FIELD[k] || k) + '：' + (x.before[k] || '（空）') + ' → ' + (x.after[k] || '（空）'); }).join('\n'); }
   function stayText(s) { return s ? s.checkin + '〜' + s.checkout + '（' + s.nights + '泊）' + s.guests + '名・' + (s.price_mode === 'custom' ? '手入力 ' : '') + yen(s.pay) : ''; }
   function payText(s) { return s ? (s.price_mode === 'custom' ? '手入力 ' : '定価 ') + yen(s.pay) : ''; }
   // ----- 金額の手入力（電話・LINE の予約だけ。要件差分 第2版 2026-10-14）：スイッチと合計金額の欄 -----

@@ -192,7 +192,7 @@ export async function handleAdminApi(site, env, request, user, now = new Date())
       }
       case "POST /info": {
         // お客様の情報の打ち間違いを直す。確かめはリリース1の予約画面と同じ
-        // 変更履歴には、直した項目の前と後の値を残す。3年で個人情報を消すとき、この値も消す（cron.js）
+        // 変更履歴には、直した項目の前と後の値を残す（期限を決めずに残す・2026-10-19）
         const b = (await db.prepare("SELECT * FROM bookings WHERE id = ?").bind(String(body.id)).first()) || bad("予約が見つかりません");
         if (b.pii_deleted_at) bad("この予約の個人情報は消去済みです");
         // 電話・メール・ご住所は、予約画面からの予約（source=web）だけ必須

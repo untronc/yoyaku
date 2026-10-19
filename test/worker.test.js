@@ -264,25 +264,24 @@ describe("ログイン", () => {
 });
 
 describe("1日1回の後片付け", () => {
-  it("[R7-6・R7-8・R7-10] 前日までの数・3年たった個人情報（変更履歴の値も）・90日を過ぎた操作ログを消す", async () => {
+  it("[R7-6・R7-8・P-1・P-3] 前日までの数・90日を過ぎた操作ログを消し、3年より前の予約の個人情報（変更履歴の値も）は残す", async () => {
     const at = NOW.toISOString();
     const ins = (id, checkout) =>
       env.DB.prepare(`INSERT INTO bookings (id, source, status, checkin, checkout, nights, guests, per_person, total, discount, pay, price_version, name, tel, email, inn_memo, received_at, created_at, created_by, updated_at, updated_by)
         VALUES (?, 'web', 'booked', '2023-10-01', ?, 1, 2, 5000, 10000, 0, 10000, 'r1', '山田', '090', 'a@b.c', 'メモ', ?, ?, 'guest', ?, 'guest')`).bind(id, checkout, at, at, at).run();
-    await ins("old", "2023-11-01");
+    await ins("old", "2023-10-01");
     await ins("new", "2023-11-02");
     await env.DB.prepare("INSERT INTO daily_counts VALUES ('2026-10-31', '*', 3, ?, 'guest', ?, 'guest'), ('2026-11-01', '*', 1, ?, 'guest', ?, 'guest')").bind(at, at, at, at).run();
     await env.DB.prepare("INSERT INTO access_log (id, received_at, created_at, created_by, updated_at, updated_by) VALUES ('l1', '2026-08-02T03:00:00Z', ?, 'guest', ?, 'guest'), ('l2', '2026-08-03T03:00:00Z', ?, 'guest', ?, 'guest')").bind(at, at, at, at).run();
     const hist = (id, key) => env.DB.prepare(`INSERT INTO booking_changes (id, booking_id, kind, before_json, after_json, changed_at, changed_via, changed_by_user_id, created_at, created_by, updated_at, updated_by) VALUES (?, ?, 'info', '{"name":"山"}', '{"name":"山田"}', ?, 'admin', NULL, ?, 's', ?, 's')`).bind(id, key, at, at, at).run();
     await hist("h1", "old");
     await hist("h2", "new");
-    expect(await dailyCleanup(site, env, NOW)).toEqual({ counts: 1, history: 1, pii: 1, logs: 1 });
-    expect(await env.DB.prepare("SELECT before_json, after_json FROM booking_changes WHERE id = 'h1'").first()).toEqual({ before_json: null, after_json: null });
-    expect((await env.DB.prepare("SELECT after_json FROM booking_changes WHERE id = 'h2'").first()).after_json).toContain("山田");
-    const old = await env.DB.prepare("SELECT name, tel, email, inn_memo, total, status, pii_deleted_at, updated_by FROM bookings WHERE id = 'old'").first();
-    expect(old).toMatchObject({ name: null, tel: null, email: null, inn_memo: null, total: 10000, status: "booked", updated_by: "system" });
-    expect(old.pii_deleted_at).toBeTruthy();
-    expect((await env.DB.prepare("SELECT name FROM bookings WHERE id = 'new'").first()).name).toBe("山田");
+    expect(await dailyCleanup(site, env, NOW)).toEqual({ counts: 1, logs: 1 });
+    for (const id of ["h1", "h2"])
+      expect(await env.DB.prepare("SELECT before_json, after_json FROM booking_changes WHERE id = ?").bind(id).first()).toEqual({ before_json: '{"name":"山"}', after_json: '{"name":"山田"}' });
+    for (const id of ["old", "new"])
+      expect(await env.DB.prepare("SELECT name, tel, email, inn_memo, total, status, pii_deleted_at, updated_by FROM bookings WHERE id = ?").bind(id).first())
+        .toEqual({ name: "山田", tel: "090", email: "a@b.c", inn_memo: "メモ", total: 10000, status: "booked", pii_deleted_at: null, updated_by: "guest" });
     expect((await env.DB.prepare("SELECT id FROM access_log").all()).results).toEqual([{ id: "l2" }]); // 2026-11-01 の90日前は 2026-08-03 03:00
   });
 });
@@ -679,10 +678,14 @@ describe("ネット予約の流入元（要件差分 予約の流入元 2026-10-
     expect(s).toHaveLength(3);
   });
 
-  it("[F-R6] 3年たった予約の個人情報を消すとき、流入元も消す", async () => {
+  it("[P-2] 3年より前の予約も、毎日の後片付けのあと流入元を持っている", async () => {
     const no = await web(SRC);
-    await env.DB.prepare("UPDATE bookings SET checkout = '2023-11-01' WHERE id = ?").bind(no).run();
+    const before = await row(no);
+    await env.DB.prepare("UPDATE bookings SET checkout = '2023-10-01' WHERE id = ?").bind(no).run();
     await dailyCleanup(site, env, NOW);
-    expect(await row(no)).toMatchObject({ name: null, src_referrer: null, src_utm_source: null, src_utm_medium: null, src_utm_campaign: null, src_landing: null, src_prev: null });
+    const after = await row(no);
+    expect(after.name).toBeTruthy();
+    for (const k of ["name", "src_referrer", "src_utm_source", "src_utm_medium", "src_utm_campaign", "src_landing", "src_prev"]) expect(after[k]).toBe(before[k]);
+    expect(after.src_utm_source).toBeTruthy();
   });
 });

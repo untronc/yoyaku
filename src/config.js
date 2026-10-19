@@ -6,7 +6,7 @@ const REQUIRED = [
   "maxGuests", "price", "bookingStart", "maxNights", "bookingDaysAhead", "sameDay", "maxOpen",
   "dailyLimit", "perContactDailyLimit", "maxLen", "noUrlFields", "arrivalOptions",
   "checkIn", "checkOut", "cancelPolicy", "payNote", "contactLine", "contactTel", "safetyNote",
-  "mail", "piiRetentionYears", "accessLogDays",
+  "mail", "accessLogDays",
 ];
 
 export function defineSite(site) {
