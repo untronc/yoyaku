@@ -100,10 +100,16 @@ async function main() {
 
     await guest.click(`.ybk-cal button[data-day="${T.checkin}"]`);
     await fillGuest(guest);
+    await check("1室の表示", "RM-1・RM-5", "STEP 1 の合計に「3泊・2名・1室」、人数の下に1室の案内が出る", async () => {
+      has(await guest.locator('.ybk-step[data-step="1"] [data-total]').innerText(), "3泊・2名・1室", "STEP 1 の合計");
+      const note = guest.locator('.ybk-step[data-step="1"] [data-room-note]');
+      must(await note.isVisible(), "1室の案内が見えていない");
+      has(await note.innerText(), "ご予約1件につき1室です。お部屋を分けたいときは、1室ずつ分けてご予約ください。", "1室の案内");
+    });
     await guest.click('[data-go="quote"]');
     await guest.waitForSelector('.ybk-step[data-step="2"]:not([hidden])');
     await check("B1", "R5-1", "日付・泊数・人数を選ぶと、下のボタンの上に合計が出る（2名×3泊・連泊割引つき 27,000円）", async () => {
-      has(await guest.locator('.ybk-step[data-step="2"] [data-sum]').innerText(), "3泊・2名", "日程");
+      has(await guest.locator('.ybk-step[data-step="2"] [data-sum]').innerText(), "3泊・2名・1室", "STEP 2 のご宿泊（RM-7）");
       has(await guest.locator('.ybk-step[data-step="2"] [data-total]').innerText(), "27,000円", "合計");
     });
     await guest.fill('[data-f="name"]', GUEST.name);
@@ -115,6 +121,10 @@ async function main() {
     await check("B1", "R5-1", "確認の画面に料金の内訳が出る（30,000円・連泊割引 −3,000円・お支払い 27,000円）", async () => {
       const p = await guest.locator('.ybk-step[data-step="3"] [data-price]').innerText();
       has(p, "30,000円", "料金"); has(p, "−3,000円", "連泊割引"); has(p, "27,000円", "お支払い");
+      has(p, "× 2名 × 3泊", "料金の行（RM-6 変えない）");
+    });
+    await check("1室の表示", "RM-2", "STEP 3 の確認の「ご宿泊」に「3泊・2名・1室・お部屋は宿で決めます」", async () => {
+      has(await guest.locator('.ybk-step[data-step="3"] [data-dl]').innerText(), "3泊・2名・1室・お部屋は宿で決めます（選べません）", "STEP 3 のご宿泊");
     });
 
     // 同意の印を2つ付けて確定（印なしで断るのは e2e/fields.mjs）
@@ -129,6 +139,9 @@ async function main() {
       bookingNo = m[1];
       must(bookPosts.length === 1, `予約の送信が ${bookPosts.length} 回`);
     });
+    await check("1室の表示", "RM-3", "STEP 4 の予約完了の画面に「3泊・2名・1室」", async () => {
+      has(await guest.locator("[data-done]").innerText(), "3泊・2名・1室", "完了の画面");
+    });
     await check("B1", "R5-1", "メールは送られない（予約の控えに「送っていない」と記録）", async () => {
       must(bookingNo, "予約番号が無い");
       const j = await (await ctx.request.get(`${API}/admin/api/booking?id=${bookingNo}`, { headers: { Cookie: `ybk_s=${await sessionCookie("sub-ok")}` } })).json();
@@ -142,6 +155,24 @@ async function main() {
       await openEmbed(guest);
       for (const d of [T.checkin, T.mid, T.last]) must((await mark(guest, d)) === "△", `${d} の印が ${await mark(guest, d)}`);
       must((await calRooms(T.checkin)) === 2, "空きが 2 でない");
+    });
+    await check("1室の表示", "RM-1・RM-6", "19名・1泊を選ぶと STEP 1 の合計に「1泊・19名・1室」。20名以上は公式LINEへの案内のまま", async () => {
+      await guest.click(`.ybk-cal button[data-day="${T.checkin}"]`);
+      must(await setCount(guest, "guests", 19), "19名にできない");
+      has(await guest.locator('.ybk-step[data-step="1"] [data-total]').innerText(), "1泊・19名・1室", "STEP 1 の合計");
+      must(await setCount(guest, "guests", 20), "20名以上にできない");
+      has(await guest.locator('.ybk-step[data-step="1"] [data-total]').innerText(), "20名以上のご予約は、公式LINEでご相談ください", "STEP 1 の合計");
+    });
+    await check("1室の表示", "RM-5", "スマホの幅（375px）でも、人数の下の1室の案内が見え、横にはみ出さない", async () => {
+      const sp = await ctx.newPage();
+      await sp.setViewportSize({ width: 375, height: 812 });
+      await openEmbed(sp);
+      const note = sp.locator('.ybk-step[data-step="1"] [data-room-note]');
+      await note.scrollIntoViewIfNeeded();
+      must(await note.isVisible(), "1室の案内が見えていない");
+      const w = await sp.evaluate(() => [document.documentElement.scrollWidth, document.documentElement.clientWidth, document.querySelector("[data-room-note]").getBoundingClientRect().right]);
+      must(w[0] <= w[1] && w[2] <= w[1], `横幅 ${w[0]}／${w[1]}・案内の右端 ${w[2]}`);
+      await sp.close();
     });
 
     // ---------- 管理画面に出る ----------

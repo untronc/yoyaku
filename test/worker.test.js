@@ -407,6 +407,10 @@ describe("見た目の設定（基本設計書 追補 2026-10-13 S-03）と予�
     expect(js).toContain('"api":"https://yoyaku.example.jp/api"');
     expect(js).toContain("/vendor/bootstrap-5.3.3/bootstrap.min.css");
     expect(js).toContain(JSON.stringify(site.cancelPolicy));
+    // [RM-1・RM-2・RM-3・RM-5] 人数を見せる所に「・1室」、人数の下に1室の案内（画面での確かめは e2e/accept.mjs）
+    expect(js).toContain("ご予約1件につき1室です。お部屋を分けたいときは、1室ずつ分けてご予約ください。");
+    expect(js.match(/名・1室/g)?.length).toBeGreaterThanOrEqual(4);
+    expect(js).toContain("j.guests + '名・1室</div></div><button type=\"button\" class=\"app-change\""); // [RM-7] STEP 2 の上の「ご宿泊」のカード
     for (const secret of [...site.admins, site.mail.notifyTo, site.mail.from]) expect(js).not.toContain(secret);
     // 前の埋め込み（web/embed.html）が使う API・validate.js はそのまま
     expect((await (await call("/api?action=ping", { headers: { Origin: STUDIO } })).json()).ok).toBe(true);

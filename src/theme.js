@@ -190,6 +190,7 @@ html.ybk-framed .app-top{position:static;border-radius:12px 12px 0 0}
 .app-sb:focus-visible{outline:none;box-shadow:0 0 0 3px rgba(var(--p-rgb),.35)}
 .app-sv{min-width:4.6em;text-align:center;font-size:18px;font-weight:700;font-variant-numeric:tabular-nums}
 .app-card .invalid-feedback{margin:0 0 6px;text-align:right}
+.app-room-note{margin:0 0 10px;line-height:1.6}
 .app-form{background:#fff;border-radius:16px;padding:16px 16px 2px;margin:0 0 12px}
 .ybk-f{margin-bottom:16px;display:flex;flex-direction:column}
 #ybk .form-label{font-size:13.5px;font-weight:600;margin-bottom:6px}

@@ -37,6 +37,10 @@ describe("予約画面からの予約", () => {
     expect(guest.headers["Idempotency-Key"]).toBe("yoyaku-" + r.no);
     expect(guest.body.text).toContain("ご宿泊日：2026年11月20日（金）〜11月22日（日）　2泊");
     expect(guest.body.text).toContain("5,000円 × 3名 × 2泊 ＝ 30,000円");
+    // [RM-4] 確認メールの人数は「3名（1室）」。[RM-6] 料金の行と宿への知らせは変えない
+    expect(guest.body.text).toContain("\n人数：3名（1室）\n");
+    expect(inn.body.text).toContain("人数：3名／2泊（2026-11-20〜2026-11-22）");
+    expect(inn.body.text).not.toContain("1室");
     // 宿への通知：件名にお名前を入れない・返信先はお客様・BCC なし・管理画面のリンク
     expect(inn.body).toMatchObject({ to: ["owner@example.com"], subject: "【予約】2026-11-20 3名2泊", reply_to: "hanako@example.com" });
     expect(inn.body.bcc).toBeUndefined();
@@ -51,6 +55,15 @@ describe("予約画面からの予約", () => {
     const h = await env.DB.prepare("SELECT * FROM booking_changes WHERE booking_id = ?").bind(r.no).first();
     expect(h).toMatchObject({ kind: "create", changed_via: "guest", changed_by_user_id: null });
     expect(h.after_json).not.toContain("山田");
+  });
+
+  it("[RM-4・RM-6] 19名でも確認メールの人数は「19名（1室）」。料金の行と宿への知らせは変えない", async () => {
+    const r = await book(site, env, bookBody({ guests: 19, nights: 1 }), NOW);
+    expect(r.ok).toBe(true);
+    const [guest, inn] = mails;
+    expect(guest.body.text).toContain("\n人数：19名（1室）\n");
+    expect(guest.body.text).toContain("4,500円 × 19名 × 1泊 ＝ 85,500円");
+    expect(inn.body.text).toContain("人数：19名／1泊（2026-11-20〜2026-11-21）");
   });
 
   it("[R4-1・R7-9] 連絡先の印はリリース1と同じ値（SHA-256 の先頭8バイト）", async () => {

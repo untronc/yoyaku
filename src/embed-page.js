@@ -54,7 +54,7 @@ const HTML =
 <div class="app-cal-card"><div class="ybk-cal-head"><button type="button" class="ybk-nav" data-nav="-1" aria-label="前の月">‹</button><span class="ybk-month"></span><button type="button" class="ybk-nav" data-nav="1" aria-label="次の月">›</button></div><div class="ybk-cal" role="grid"></div></div>
 <p class="app-legend"><span><i></i> 空きあり</span><span><b>残り1</b> 残りわずか</span><span>薄い日は選べません</span></p>
 <div class="app-card"><div class="app-row"><span class="app-k">チェックイン</span><b data-v="checkin">—</b></div><div class="invalid-feedback" data-err="checkin"></div>
-${stepper("nights", "泊数")}${stepper("guests", "人数")}<div class="app-row"><span class="app-k">チェックアウト</span><b data-v="checkout">—</b></div></div>
+${stepper("nights", "泊数")}${stepper("guests", "人数")}<p class="app-sub app-room-note" data-room-note>ご予約1件につき1室です。お部屋を分けたいときは、1室ずつ分けてご予約ください。</p><div class="app-row"><span class="app-k">チェックアウト</span><b data-v="checkout">—</b></div></div>
 <div class="alert alert-danger ybk-msg" data-msg="1" role="alert"></div>${cta("quote", "次へ　お客さまの情報")}</section>` +
   // STEP 2：お客さまの情報
   `<section class="ybk-step" data-step="2" hidden>${top(2, "お客さまの情報", 1)}<p class="app-lead">ご宿泊される代表の方の情報を入力してください。</p><div data-sum></div>
@@ -113,7 +113,7 @@ const SCRIPT = String.raw`
   var jpShort = function (ymd) { return jpDate(ymd, false); };
   var addDays = function (ymd, n) { var a = ymd.split('-').map(Number); return new Date(Date.UTC(a[0], a[1] - 1, a[2] + n)).toISOString().slice(0, 10); };
   var stay = function (j) {
-    return jpDate(j.checkin) + '〜' + jpDate(j.checkout, j.checkout.slice(0, 4) !== j.checkin.slice(0, 4)) + '　' + j.nights + '泊・' + j.guests + '名';
+    return jpDate(j.checkin) + '〜' + jpDate(j.checkout, j.checkout.slice(0, 4) !== j.checkin.slice(0, 4)) + '　' + j.nights + '泊・' + j.guests + '名・1室';
   };
 
   // アクセス記録（API の action=log → D1 の access_log）。個人情報は送らない（したこと・結果・かかった時間・エラーの文言・日程と人数・画面幅だけ）。
@@ -180,6 +180,7 @@ const SCRIPT = String.raw`
     var el = q('[data-f="' + name + '"]'); return el.type === 'checkbox' ? el.checked : el.value.trim();
   }
 
+  // 人数を見せる所（STEP 1 の合計・STEP 2 のご宿泊・STEP 3 の確認・STEP 4 の完了）は「〇名・1室」。予約1件＝1室（要件差分 1室の表示 2026-11-15・RM-1〜RM-3・RM-7）
   // ----- 泊数・人数（− ＋）。人数は「上限＋1」を「○名以上」として選べ、サーバーが公式LINEへの案内を返す（2026-09-29 nao） -----
   var LIMIT = { nights: [1, C.maxNights], guests: [1, C.maxGuests + 1] };
   function countText(k, v) { return k === 'nights' ? v + '泊' : v > C.maxGuests ? v + '名以上' : v + '名'; }
@@ -198,12 +199,12 @@ const SCRIPT = String.raw`
     var h;
     if (step !== '1' && state.quote) {
       var p = state.quote.price;
-      h = '<span>合計（' + state.quote.nights + '泊・' + state.quote.guests + '名' + (p.discount ? '・連泊割引後' : '') + '）</span><b>' + yen(p.pay) + '</b>';
+      h = '<span>合計（' + state.quote.nights + '泊・' + state.quote.guests + '名・1室' + (p.discount ? '・連泊割引後' : '') + '）</span><b>' + yen(p.pay) + '</b>';
     } else if (!state.checkin) h = '<span>チェックインの日を選んでください</span>';
     else if (state.guests > C.maxGuests) h = '<span>' + (C.maxGuests + 1) + '名以上のご予約は、公式LINEでご相談ください</span>';
     else {
       var x = YBK_PRICE(C, state.guests, state.nights);
-      h = '<span>合計（' + state.nights + '泊・' + state.guests + '名' + (x.discount ? '・連泊割引後' : '') + '）</span><b>' + yen(x.pay) + '</b>';
+      h = '<span>合計（' + state.nights + '泊・' + state.guests + '名・1室' + (x.discount ? '・連泊割引後' : '') + '）</span><b>' + yen(x.pay) + '</b>';
     }
     qa('[data-total]').forEach(function (el) { el.innerHTML = h; });
   }
@@ -303,7 +304,7 @@ const SCRIPT = String.raw`
     var j = state.quote, p = j.price;
     var rows = [['お名前', f('name')], ['電話番号', f('tel')], ['メール', f('email')], ['ご住所', f('address')], ['到着予定', f('arrival')], ['ご要望', f('note') || 'なし']];
     return '<div class="app-card app-confirm">' +
-      '<section class="app-sec"><div class="app-sec-h"><span>ご宿泊</span><button type="button" class="app-change" data-back="1">変更</button></div><div class="app-strong">' + e(jpShort(j.checkin) + ' 〜 ' + jpShort(j.checkout)) + '</div><div class="app-sub">' + j.nights + '泊・' + j.guests + '名・お部屋は宿で決めます（選べません）</div></section>' +
+      '<section class="app-sec"><div class="app-sec-h"><span>ご宿泊</span><button type="button" class="app-change" data-back="1">変更</button></div><div class="app-strong">' + e(jpShort(j.checkin) + ' 〜 ' + jpShort(j.checkout)) + '</div><div class="app-sub">' + j.nights + '泊・' + j.guests + '名・1室・お部屋は宿で決めます（選べません）</div></section>' +
       '<section class="app-sec"><div class="app-sec-h"><span>お客さまの情報</span><button type="button" class="app-change" data-back="2">変更</button></div><dl class="app-dl">' + rows.map(function (r) { return '<dt>' + r[0] + '</dt><dd>' + e(r[1]) + '</dd>'; }).join('') + '</dl></section>' +
       '<section class="app-sec app-price" data-price><div class="app-prow"><span>' + yen(p.perPerson) + ' × ' + j.guests + '名 × ' + j.nights + '泊</span><span>' + yen(p.total) + '</span></div>' +
       (p.discount ? '<div class="app-prow"><span>連泊割引</span><span>−' + yen(p.discount) + '</span></div>' : '') +
@@ -337,7 +338,7 @@ const SCRIPT = String.raw`
         if (!j.ok) { if (serverErrs(j, 1)) return msg(1, ''); return msg(1, j.error); }
         if (!j.available) return msg(1, j.message);
         state.quote = j;
-        q('[data-sum]').innerHTML = '<div class="app-card app-stay"><div><div class="app-sub">ご宿泊</div><div class="app-strong">' + e(jpShort(j.checkin) + ' 〜 ' + jpShort(j.checkout)) + '</div><div class="app-sub">' + j.nights + '泊・' + j.guests + '名</div></div><button type="button" class="app-change" data-back="1">変更</button></div>';
+        q('[data-sum]').innerHTML = '<div class="app-card app-stay"><div><div class="app-sub">ご宿泊</div><div class="app-strong">' + e(jpShort(j.checkin) + ' 〜 ' + jpShort(j.checkout)) + '</div><div class="app-sub">' + j.nights + '泊・' + j.guests + '名・1室</div></div><button type="button" class="app-change" data-back="1">変更</button></div>';
         show(2);
         notify('yoyaku_quote', j);
       }).catch(function () { t.disabled = false; msg(1, '通信できませんでした。時間をおいてお試しください。'); });

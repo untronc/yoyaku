@@ -37,7 +37,7 @@ export function innText(site, bk, stamp, via = "予約画面") {
   ].join("\n");
 }
 
-/** お客様への予約確認メールの本文（リリース1のまま） */
+/** お客様への予約確認メールの本文（リリース1のまま。人数に「（1室）」を足した・2026-11-15） */
 export function guestText(site, bk) {
   const checkin = parseYmd(bk.checkin), checkout = parseYmd(bk.checkout);
   return [
@@ -49,7 +49,7 @@ export function guestText(site, bk) {
     "■ご予約内容",
     "予約番号：" + bk.id,
     "ご宿泊日：" + jpDate(checkin) + "〜" + jpDate(checkout, bk.checkout.slice(0, 4) !== bk.checkin.slice(0, 4)) + "　" + bk.nights + "泊",
-    "人数：" + bk.guests + "名",
+    "人数：" + bk.guests + "名（1室）", // 予約1件＝1室（要件差分 1室の表示 2026-11-15・RM-4）
     "到着予定：" + (bk.arrival || "未記入"),
     "ご要望：" + (bk.note || "なし"),
     "",
